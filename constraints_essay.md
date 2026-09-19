@@ -1,5 +1,6 @@
 # Constraints Essay
 OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System 
+
 Team Members: Andrea Dall'Ara, Bridget Trout, Dang Luu, Cyrus Speicher 
 
 ## Economic
