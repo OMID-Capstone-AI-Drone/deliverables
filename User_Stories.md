@@ -31,19 +31,31 @@ Then  [the verifiable outcome, with a number where one applies].
 ### Use case draft
 "Crop prediction"
 
-Primary Actor:
+Primary Actor: Farm owner
 
-Secondary Actor: 
+Secondary Actor: Web app, farm worker
 
 Preconditions: 
+Sensors are running and transmitting live information to the web app, 
+prediction models are trained and finetuned to the specific crop field, 
+the farm owner is logged in to the app.
 
-Main success flow: 1) 2) 3)
+Main success flow: 
+1) Farm owner selects the disease event to be predicted. 
+2) Web app uses sensor data to make a disease prediction and posts it to the screen.
+3) Farm owner sees that black rot is highly likely to occur and takes preventative measures. 
 
 Alternate success flow: 
+1) Farm owner selects the disease event to be predicted. 
+2) Web app uses sensor data to make a disease prediction and posts it to the screen.
+3) Farm owner sees that crops are healthy and does not take preventative measures. 
 
 Exception flow:
+1) Farm owner selects the disease event to be predicted. 
+2) Exception: Web app cannot access recent sensor data and states which sensors are down.
 
 Postcondition:
+Web app displays likelihood of disease, pest, and frost events. 
 
 ## Farm worker
 US-02 (Primary): As a farm worker, 
