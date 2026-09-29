@@ -9,7 +9,7 @@ All members agree to performing their best on the project to not inhibit team me
 * Andrea: Gain useful web development and team building experience through project work 
 * Bridget: Get an A in senior design class. Apply my ML knowledge to a new domain (agriculture). Finish with a strong project to add to my resume. 
 * Cyrus: Gain useful machine learning and software development experience through project work 
-* Dang: 
+* Dang: Gain useful computer vision skills and teamwork.
 
 ## Meeting Norms 
 * Weekly status meeting with the full team and Advisor Dr. Mohsen to discuss progress. All members should attend. 
@@ -46,3 +46,5 @@ Bridget Trout
 Cyrus Speicher 
 
 Andrea Dall'Ara 
+
+Dang Luu 
