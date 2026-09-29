@@ -1,3 +1,6 @@
+# User Stories
+Team members: Andrea Dall'Ara, Bridget Trout, Cyrus Speicher, Dang Luu
+
 # Stakeholders
 ## Primary
 - Farm owner
@@ -136,3 +139,9 @@ Then the app produces a CSV containing every matching record and no records outs
 AC-05.2  Given no historical records exist within the selected date range,
 When an authorized farm owner requests a research export,
 Then the app displays “No records found for the selected date range,” generates no export file, and allows the owner to select a different date range.
+
+# AI Attribution
+The authors would like to acknowledge the use of Gemini, 
+developed by Google, in the preparation of this assignment. 
+Gemini was used in the following way(s) in this assignment: 
+Style and layout of the mermaid stakeholder map. 
