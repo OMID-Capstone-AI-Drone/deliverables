@@ -2,6 +2,8 @@
 
 **Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System
 
+**Team Members:** Andrea Dall'Ara, Bridget Trout, Dang Luu, Cyrus Speicher 
+
 **Goal Statement:** Help specialty-crop farmers make timely, informed decisions by combining stationary-sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
 
 **Basic Input and Output:** The system receives timestamped sensor measurements and crop images associated with a vineyard zone, together with farmer-configured thresholds. It produces risk alerts, detected crop conditions, crop counts, yield estimates, and downloadable reports through an authenticated web application.
