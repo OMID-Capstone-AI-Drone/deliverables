@@ -4,11 +4,11 @@ Project Title:
 Goal Statement:
 
 Diagram Conventions:
-Boxes: represent the primary system components
-Solid lines with arrows: represent the active flow of data
-Dashed outlines/lines: represent external systems and their data feeds
-Basic Input: Multispectral drone imagery and sensor data
-Basic Output: WebApp dashboard displays the likelihood of frost, disease 
+Boxes: represent the primary system components<br>
+Solid lines with arrows: represent the active flow of data<br>
+Dashed outlines/lines: represent external systems and their data feeds<br>
+Basic Input: Multispectral drone imagery and sensor data<br>
+Basic Output: WebApp dashboard displays the likelihood of frost, disease<br>
 and pests, the estimated yield counts, spatial alerts, and CSV historical data
 
 # Block diagram (the D0 diagram)
