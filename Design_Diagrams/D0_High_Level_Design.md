@@ -3,7 +3,7 @@ Project Title:
 
 Goal Statement:
 
-Diagram Conventions:
+Diagram Conventions:<br>
 Boxes: represent the primary system components<br>
 Solid lines with arrows: represent the active flow of data<br>
 Dashed outlines/lines: represent external systems and their data feeds<br>
