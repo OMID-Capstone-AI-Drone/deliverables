@@ -197,3 +197,5 @@ developed by Google, in the preparation of this assignment.
 Gemini was used in the following way(s) in this assignment: 
 Style and layout of the mermaid block diagram (D0) and the
 data-flow diagram. 
+
+The authors would also like to acknowledge the use of Claude, developed by Anthropic, in the preparation of this assignment. Claude was used in the following way(s) in this assignment: Drafting and editing the decision log (Part 7). 
