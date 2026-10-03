@@ -152,6 +152,23 @@ graph LR
 
 # Architecture pattern and justification
 
+**Our system uses a combination of patterns: client-server and pipeline.
+**
+1. Client-server: Web App & API Gateway server recieves data from sensors and requests from users and sends prediction and analysis responses back to the client. There will be a backend abstracted from the user's interaction with the frontend.
+
+2. Pipeline: Frost Prediction Engine, Disease Detection Module, Pest Detection Module, and Yield Estimation Module all follow the pipeline pattern. The sensors provide data to the backend, and particular data is routed to the appropriate analysis engine/module. That engine/module will process the data and transform it into a predicition/analysis result which is then sent to the frontend. Each engine/module is it's own independent pipeline.
+
+**Justification:** 
+
+- Fit to the problem: The system has a central web app interface and several specialized analysis engines/modules. Client-server fits the central hub and pipelines fit the processing of sensor data into analysis results.
+- Team skills: Each team member owns one of the components based on their skillset. Andrea has full-stack development experience and so owns the web app. Cyrus has ML knowledge and web development experience and so owns frost prediction, which is tied closly to the web app. Bridget has industry experience as an ML co-op and so owns disease/pest detection, and Dang has ML/AI experience and so owns yield estimation. 
+- Performance and timing: Separating the ML tasks into individual modules allows computationally expensive tasks such as model inferencing, segmentation, etc. to run independently.
+- Scalability: The specialized analysis modules can be scaled/developed independently without impacting other aspects of the web app.
+- Hardware constraints: Since the analysis engines/modules are separate, they can be run on appropriate hardware for GPU and CPU intensive tasks.
+
+**Rejected Pattern: **
+We rejected the embedded sensor-actuator pattern because our solution's scope does not include an automatic response to sensor data. Our solution is aimed at providing accurate predictions to farmers who can then decide to take action. Our solution takes in sensor data and generates predictions / analysis content to be displayed to the user. This information helps to inform the user of possible events so that they can decide to take action if necessary. 
+
 # Decision log
 
 # AI Attribution
