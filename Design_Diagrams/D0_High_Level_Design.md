@@ -1,20 +1,28 @@
 # Title, goal statement, and conventions
-## Project Title:
 
-## Goal Statement:
+**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System
 
-## Diagram Conventions:<br>
-### Boxes: 
-Represent the primary system components<br>
-### Solid lines with arrows: 
-Represent the active flow of data<br>
-### Dashed outlines/lines: 
-Represent external systems and their data feeds<br>
-### Basic Input: 
-Multispectral drone imagery and sensor data<br>
-### Basic Output: 
-WebApp dashboard displays the likelihood of frost, disease<br>
-and pests, the estimated yield counts, spatial alerts, and CSV historical data
+**Goal Statement:** Help specialty-crop farmers make timely, informed decisions by combining stationary-sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
+
+**Basic Input and Output:** The system receives timestamped sensor measurements and crop images associated with a vineyard zone, together with farmer-configured thresholds. It produces risk alerts, detected crop conditions, crop counts, yield estimates, and downloadable reports through an authenticated web application.
+
+**Diagram Conventions:**
+
+| Diagram | Figure or line | Meaning |
+|---------|----------------|---------|
+| Block diagram | Gray boxes with dashed borders | Existing drone/camera and stationary-sensor hardware supplied by the hardware team. |
+| Block diagram | Blue box | The Web App & API Gateway, which provides the user-facing interface and coordinates system access and integration. |
+| Block diagram | Green boxes | The four internal AI or rule-processing modules for frost, disease, pests, and yield. |
+| Block diagram | Dashed arrows labeled I1 and I2 | Data feeds from external hardware into the Web App & API Gateway. |
+| Block diagram | Solid arrows labeled I3 through I6 | Requests and input data sent to an internal module. The module's response uses the same interface ID, as specified in the interface table. |
+| Data-flow diagram | Gray rounded figures | External sources of sensor measurements or drone imagery. |
+| Data-flow diagram | Blue rectangles | Processing stages or the dashboard/export stage. These may be internal steps within a component rather than separate deployed services. |
+| Data-flow diagram | Yellow cylinder | Persistent historical records and configuration data. |
+| Data-flow diagram | Labeled arrows | The direction of information movement and the state or content of that information at that stage. |
+
+Interface IDs identify connections, not execution order. Disease, pest, and yield analysis can use the same capture independently; the modules do not have to run one after another. Colors are supplemented by labels, shapes, and line styles so meaning does not depend on color alone.
+
+The block diagram shows component boundaries; the data-flow diagram expands the processing within those boundaries. The goal statement and project title above apply to both views, and each view includes its own legend.
 
 # Block diagram (the D0 diagram)
 ```mermaid
