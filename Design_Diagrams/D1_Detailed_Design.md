@@ -6,7 +6,7 @@
 **Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
 
 **Scope:**
-D0 Components in this document: Web app, Disease Detection, Pest Detection, Yield Estimation
+D0 Components in this document: Web app, Disease Detection, Pest Detection, Yield Estimation<br>
 D0 Components deferred to D2: Frost Prediction
 
 ## Yield Estimation figure conventions
