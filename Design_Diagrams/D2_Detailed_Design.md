@@ -135,6 +135,78 @@ Each rule has specified thresholds for measurements (either derived variables or
 **Errors:** Returns an error if there are fewer than two data points provided or the historical database is unreachable<br>
 
 
+## Disease Prediction Engine
+
+| Figure element | Meaning |
+|---|---|
+| Box | An entity. The title is the entity name and each line inside is one attribute. |
+| `PK`, `FK` | Primary key, foreign key. |
+| Solid line | Identifying relationship. |
+| Dashed line | Non-identifying relationship. |
+| Line ends (crow's foot) | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
+
+```mermaid 
+erDiagram
+    MULTISPECTRAL_IMAGE ||--|{ IMAGE_PATCH : "is patched into"
+    IMAGE_PATCH ||--o{ VINE_DETECTION : "produces"
+    VINE_DETECTION ||--o| VEGETATION_INDICES : "provides region for"
+    IMAGE_PATCH ||--o{ VEGETATION_INDICES : "provides statistics for"
+    IMAGE_PATCH ||--o{ DISEASE_PREDICTION : "produces"
+    VEGETATION_INDICES ||--o{ DISEASE_PREDICTION : "provides features to"
+    RESNET_MODEL ||--o{ VINE_DETECTION : "produces"
+    RESNET_MODEL ||--o{ DISEASE_PREDICTION : "produces"
+
+    MULTISPECTRAL_IMAGE {
+        string image_id PK
+        string vineyard_id FK
+        timestamp captured_at
+        string image_file
+    }
+
+    IMAGE_PATCH {
+        string patch_id PK
+        string image_id FK
+        int window_x
+        int window_y
+        int patch_width
+        int patch_height
+        int window_stride
+    }
+
+    RESNET_MODEL {
+        string model_id PK
+        string task_type "vine_detection or disease_classification"
+        string weights_file
+    }
+
+    VINE_DETECTION {
+        string detection_id PK
+        string patch_id FK
+        string model_id FK
+        float confidence_score
+        string detection "vine or no_vine"
+    }
+
+    VEGETATION_INDICES {
+        string veg_ind_id PK
+        string patch_id FK
+        string detection_id FK
+        float ndvi
+        float ndre
+        float gndvi
+        float savi
+    }
+
+    DISEASE_PREDICTION {
+        string classification_id PK
+        string patch_id FK
+        string veg_ind_id FK
+        string model_id FK
+        float disease_probability
+        float healthy_probability
+    }
+```
+
 # Edge cases and error handling
 
 **Frost prediction:**
