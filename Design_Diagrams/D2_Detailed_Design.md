@@ -20,6 +20,8 @@ yield, and provide organized records for planning and research.
 | Dashed line | Non-identifying relationship. |
 | Line ends (crow's foot) | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
 
+**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
+**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
 ```mermaid
 erDiagram
     ZONE_CONFIG ||--o{ SENSOR_READING : "defines thresholds for"
@@ -68,22 +70,62 @@ $$T_{projected,2h} = T_{now} + 2(CoolingRate_{60})$$<br>
 
 | Figure element | Meaning |
 |---|---|
-| `[*]` | The initial or terminal state of the system. |
-| Rounded Box | A specific operational alert level (state). |
-| Arrow | A state transition triggered by new sensor readings or time passing. |
-| Text in brackets `[ ]` | The specific rule conditions and thresholds required to trigger the transition. |
+| Black circle | The initial or terminal state of the system. |
+| Gray rounded box | A specific operational alert level (state). |
+| Red rounded box | An explicit error-handling or degraded state. |
+| Solid arrow | A state transition triggered by new sensor readings or time passing. |
+| Dashed arrow | An error path triggered by missing inputs, invalid boundary values, or timing timeouts |
+| Text on arrow | The specific rule conditions and thresholds required to trigger the transition. |
 
+
+**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
+**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
 ```mermaid
-stateDiagram-v2
-    [*] --> Level1_Normal
-    Level1_Normal --> Level2_FrostWatch : [bud swell, and rule 2A or 2B is satisfied (Rapid dry cooling or Forecast approach, respectively)]
-    Level1_Normal --> Level3_FrostWarning : [sensitive tissue, and rule 3A or 3C is satisfied (Radiation pattern or Advective freeze, respectively)]
-    Level2_FrostWatch --> Level3_FrostWarning : [Conditions worsen to 3A, 3B, or 3C thresholds (3B is rapid dry-air cooling)]
-    Level3_FrostWarning --> Level4_FrostImminent : [Air <= 33°F and rule 4A or 4B is satisfied (Cooling or Wet tissue, respectively) or Bud zone <= 32°F (Rule 4C)]
-    Level4_FrostImminent --> Level5_EventInProgress : [Bud zone <= critical temp for duration or <= 30°F]
-    Level5_EventInProgress --> Level6_AllClear : [Temp >= critical+2°F and stable/rising for 30m and no forecasted decline]
-    Level6_AllClear --> [*]
+flowchart TB
+    %% Styling to mimic state machine shapes
+    classDef state fill:#f3f4f6,stroke:#374151,stroke-width:2px,rx:10px,ry:10px;
+    classDef errorState fill:#fee2e2,stroke:#dc2626,stroke-width:2px,rx:10px,ry:10px;
+    classDef point fill:#000,stroke:#000,rx:20px,ry:20px;
+
+    Start((( ))):::point
+    End((( ))):::point
+
+    L1["Level 1: Normal"]:::state
+    L2["Level 2: Frost Watch"]:::state
+    L3["Level 3: Frost Warning"]:::state
+    L4["Level 4: Frost Imminent"]:::state
+    L5["Level 5: Event In Progress"]:::state
+    L6["Level 6: All Clear"]:::state
+
+    ErrData["Invalid Data Handler"]:::errorState
+    ErrSensor["Degraded Alert State<br>(Sensor Unavailable)"]:::errorState
+
+    Start --> L1
+
+    %% Main Happy Path (Solid lines force the central vertical layout)
+    L1 -->|Bud swell+ & Rapid cooling| L2
+    L1 -->|Sensitive tissue & Advective/Radiation| L3
+    L2 -->|Worsens to L3 thresholds| L3
+    L3 -->|Air <= 33°F OR Bud <= 32°F| L4
+    L4 -->|Bud <= Critical OR <= 30°F| L5
+    L5 -->|Temp >= Critical+2°F & Stable| L6
+    L6 --> End
+
+    %% Bad Input / Boundary Values (Dashed lines push to the side)
+    L1 -.->|Invalid Data OR Spread < -0.2°F| ErrData
+    L2 -.->|Invalid Data| ErrData
+    L3 -.->|Invalid Data| ErrData
+    ErrData -.->|Reject & flag quality| End
+
+    %% Missing Input / Timing Constraints (Dashed lines push to the side)
+    L1 -.->|Missed 2 intervals| ErrSensor
+    L2 -.->|Missed 1 interval| ErrSensor
+    L3 -.->|Missed 1 interval| ErrSensor
+    L4 -.->|Sensor failure| ErrSensor
+    L5 -.->|Sensor failure| ErrSensor
+    ErrSensor -.->|Data restored| L5
 ```
+
 Each rule has specified thresholds for measurements (either derived variables or sensor readings)
 
 ### Interface (I3):
@@ -95,7 +137,25 @@ Each rule has specified thresholds for measurements (either derived variables or
 
 # Edge cases and error handling
 
+**Frost prediction:**
+| ID | Component | Category | Edge Case | Design Decision | Handler | Recoverable |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| EC-F1 | Frost Engine | Missing Input | Primary temperature sensor fails during an active warning. | Retain the current alert, display "Sensor data unavailable," and show timestamp of latest measurement. | `AlertDowngradeGuard` | Yes |
+| EC-F2 | Frost Engine | Timing / Missing Input | Missing reporting intervals. | Mark data stale after 2 missed intervals (Normal) or 1 interval (Watch+). Do not downgrade an alert for stale data. | `StaleDataMonitor` | Yes |
+| EC-F3 | Frost Engine | Bad Input | Relative humidity or temperature is outside valid range. | Do not calculate dew point from invalid temperature or humidity. | `DewPointCalculator` | Yes |
+| EC-F4 | Frost Engine | Boundary Value | Dew-point spread is highly negative (<-0.2°F). | Treat as a likely sensor error or mismatched measurements; trigger a data-quality flag. | `SpreadValidator` | Yes |
+| EC-F5 | Frost Engine | Boundary Value | Soil is saturated. | Do not automatically reduce frost risk, as drainage and root health become separate concerns. | `RiskModifier` | Yes |
+
 # Requirements traceability table
+
+**Frost prediction:**
+| ID | Short Text | Priority | Design Elements | How it is satisfied | Gap Explanation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| R-F1 | Distinguish frost mechanisms | High | `frost_type` in `FROST_ALERT`, Rules 3A and 3C | Wind speeds classify the event (e.g., > 10 mph signals an advective freeze). | None |
+| R-F2 | Calculate dew point accurately | High | `DewPointCalculator`, Magnus approximation | Uses air temperature and humidity internally in Celsius to compute dew point. | None |
+| R-F3 | Prevent false all-clears | High | State Machine `Level6_AllClear` transition | Prevents lowering alert until temp is 2°F above threshold, stable for 30 mins, with no forecasted decline. | None |
+| R-F4 | Localized sensor targeting | Med | `SENSOR_READING.air_temp_f` | Evaluates temperatures measured specifically at the grape bud/shoot zone, rather than generic box temperatures. | None |
+| R-F5 | Retain configuration history | Med | `ZONE_CONFIG` historic logs | Timestamps and stores farmer configurations with growth stage, preceding values, and outcomes for local calibration. | None |
 
 # Design rationale
 
