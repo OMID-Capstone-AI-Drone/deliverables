@@ -10,6 +10,16 @@ yield, and provide organized records for planning and research.
 
 ## For the Frost Prediction Engine (Rule-based Model)
 ### Data Model
+**Frost Data Model Conventions**
+
+| Figure element | Meaning |
+|---|---|
+| Box | One entity. The title is the entity name; each line inside is one key attribute. |
+| `PK`, `FK` | Primary key, foreign key. |
+| Solid line | Identifying relationship (the child cannot exist without the parent). |
+| Dashed line | Non-identifying relationship. |
+| Line ends (crow's foot) | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
+
 ```mermaid
 erDiagram
     ZONE_CONFIG ||--o{ SENSOR_READING : "defines thresholds for"
@@ -53,6 +63,15 @@ $$T_d = \frac{b\gamma}{a-\gamma}$$<br>
 $$DewPointSpread = T_{air} - T_{dewpoint}$$<br>
 **Projected temperature:**<br>
 $$T_{projected,2h} = T_{now} + 2(CoolingRate_{60})$$<br>
+
+**Frost State Machine Conventions**
+
+| Figure element | Meaning |
+|---|---|
+| `[*]` | The initial or terminal state of the system. |
+| Rounded Box | A specific operational alert level (state). |
+| Arrow | A state transition triggered by new sensor readings or time passing. |
+| Text in brackets `[ ]` | The specific rule conditions and thresholds required to trigger the transition. |
 
 ```mermaid
 stateDiagram-v2
