@@ -7,6 +7,10 @@
 yield, and provide organized records for planning and research.
 
 ## Known gaps and open questions
+- Mobile offline support for the dashboard is currently unaddressed; users cannot view cached maps without an active connection.
+- The actual battery drain of using HTTP/REST (I2) on stationary sensors remains unmeasured; if field tests fail, MQTT will be required.
+- Cross-tenant isolation for multiple distinct farms in BigQuery needs strict partition validation beyond the current Firebase role checks.
+
 
 **Yield Estimation**
 - The I6 service, run queue, `YIELD_RUN`, and `RUN_ISSUE` are designed in D2 but not yet built. Today the module is the command-line batch `scripts/run_pipeline.py`.
@@ -610,6 +614,24 @@ We chose zone configuration containing growth stage, a farmer-adjusted critical 
 We chose the six-level frost lifecycle with a sustained all-clear condition over clearing an active event as soon as temperature crosses the critical threshold because a brief rise does not establish that the danger has passed. We accepted the trade-off of waiting until temperature is at least 2°F above the critical value, stable or rising for 30 minutes, with no forecasted decline because these conditions provide stronger evidence of recovery. I3's insufficient-data and database errors remain errors rather than evidence for an all-clear.
 
 **References:** D2, Frost State Machine (`Level5_EventInProgress` to `Level6_AllClear`) and Interface I3; refines D0 DL-2 and DL-4.
+
+### 6. Peer design review notes
+
+| ID | Rubric Criterion | Issue & Raising Team | Action | Owner | Priority | Due Date |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| PR-01 | Risk | Missing fallback if primary temperature sensor fails during an active freeze event. | Add a degraded alert state to the Frost Engine state machine to retain warnings. | Cyrus | Must-fix | Week 8 |
+| PR-02 | Completeness | Glue components (Notifications, Logging) lack explicit behavior definitions and batching rules. | Detail glue components in D2 text, including Notification batching behavior. | Andrea | Must-fix | Week 8 |
+| PR-03 | Completeness | Yield estimation lacks explicit handling for corrupt or unreadable image inputs. | Add edge case for `IOError` handling in the ImageLoader to exclude corrupt files. | Dang | Must-fix | Week 8 |
+| PR-04 | Clarity | Disease module behavior is unclear when all ViT confidence scores are extremely low. | Define an explicit boundary value edge case where scores < 0.1 trigger a "manual review" status. | Bridget | Must-fix | Week 8 |
+
+Criterion with the most feedback:
+Completeness drew the most feedback from our reviewers. Multiple teams noted that we had omitted detailed specifications for our glue components and highlighted missing edge cases regarding corrupted inputs in the machine learning pipelines.
+
+Top two issues we raised while reviewing others (Based on our review of the briann45/senior-design codebase):
+
+Clarity (Data Model): We noted that the D2-data-model in the reviewed team's repository lacked clear cardinality constraints on their primary entity relationships, making it ambiguous how one-to-many associations are handled in their relational schema.
+
+Completeness (State Machine): We pointed out that their D2-ingestion-states diagram was missing explicit error or timeout paths, which leaves edge case behavior undefined and poses a risk of silent failures if their data ingestion process hangs midway.
 
 # AI Attribution
 The authors would like to acknowledge the use of Gemini, 
