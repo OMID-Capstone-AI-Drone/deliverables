@@ -1,62 +1,89 @@
 # Header, conventions, and D2 overview
+
 **Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System
 
 **Team Members:** Andrea Dall'Ara, Bridget Trout, Dang Luu, Cyrus Speicher
 
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop 
-yield, and provide organized records for planning and research.
+**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
+
+## Diagram conventions
+
+The project title and goal statement are repeated above every figure. Figure IDs: F = frost, D = disease, Y = yield.
+
+| Diagram type | Element | Meaning |
+|---|---|---|
+| ER (F-1, D-1, Y-1) | Box | One entity. Title is the entity name; each line is one key attribute. |
+| ER | `PK`, `FK` | Primary key, foreign key. Two `PK` marks in one box form a composite key. |
+| ER | Solid / dashed line | Identifying relationship (child cannot exist without parent) / non-identifying relationship. |
+| ER | Crow's foot | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
+| ER | "planned" | Designed but not yet in code. |
+| State machine (F-2) | Black circle | Initial state. |
+| State machine | Gray rounded box | A normal state (an alert level). |
+| State machine | Red box | Error, degraded, or failed state. |
+| State machine (F-2) | Blue box | "Return to held level": the engine goes back to the level it held before the error. |
+| State machine | Solid / dashed arrow | Normal transition / error path. Arrow text is the condition. |
+| Flowchart (Y-2) | Rectangle / diamond | A processing step / a decision (arrows are labeled with the answer). |
+| Flowchart | Solid / dashed arrow | Normal path / error or fallback path. |
+| Flowchart | Amber box | Degraded or skipped: a warning `RUN_ISSUE` is logged. |
+| Flowchart | Red box | Failed: the photo is left out of the count and an error `RUN_ISSUE` is logged. |
+
+## Two-minute overview
+
+OMID is an open, generative-AI-powered precision agriculture platform for smallholder vineyards. Stationary IoT sensor boxes (I2) and low-altitude drone imagery (I1) enter through one Web App & API Gateway, which authenticates users and calls four modules: frost prediction (I3), disease detection (I4), pest detection (I5), and yield estimation (I6). **D0** gave the block diagram, interfaces I1–I6, and decisions DL-1 to DL-6. **D1** detailed the disease, pest, web-app data access, and yield algorithms and data model, and deferred frost. **D2** finishes every component with a data model, behavior, interface, edge cases, and error handling. It adds the glue components (authentication, notifications, configuration, logging), a traceability table, a rationale, and the peer review notes.
 
 ## Known gaps and open questions
-- Mobile offline support for the dashboard is currently unaddressed; users cannot view cached maps without an active connection.
-- The actual battery drain of using HTTP/REST (I2) on stationary sensors remains unmeasured; if field tests fail, MQTT will be required.
-- Cross-tenant isolation for multiple distinct farms in BigQuery needs strict partition validation beyond the current Firebase role checks.
 
+- **Mobile offline:** the dashboard cannot show cached maps without a connection.
+- **Sensor battery:** HTTP/REST (I2) drain is unmeasured; if field tests fail, MQTT is required (D0 DL-5).
+- **Tenant isolation:** `org_id` is now stored on captures and yield runs and filtered by the gateway (§2.4). BigQuery partition validation across farms is still open.
+- **Frost thresholds:** the Level 2 and Level 3 conditions in §2.1 were formalized in D2 using the projected temperature and should be confirmed with an agronomist.
+- **Yield:** converting counts to kg needs `MASS_CALIBRATION` (who weighs bunches, how many, and when is an open question for OMID). Bunches in overlapping photos are counted twice (EC-Y16). Counts and run times are estimates, not measurements; we propose AC-02.3 and NFR-PERF (§4).
+- **Open question (web app):** where are crop type and harvest period stored for the buyer export (AC-04.1)?
 
-**Yield Estimation**
-- The I6 service, run queue, `YIELD_RUN`, and `RUN_ISSUE` are designed in D2 but not yet built. Today the module is the command-line batch `scripts/run_pipeline.py`.
-- Converting counts to kilograms needs `MASS_CALIBRATION`: bunches weighed at the farm for each zone and season. Open question for OMID: who weighs, how many bunches, and when before harvest?
-- Bunches that appear in two overlapping photos are counted twice (EC-Y16). The capture protocol must avoid overlap until tracking exists.
-- Count accuracy and run time are estimates, not measurements. User_Stories has no accuracy or time target, so we propose AC-02.3 and a run-time NFR (see yield traceability).
-- Open question for the web-app owner: where are crop type and harvest period stored for the buyer export (AC-04.1)?
-- Open question for the disease owner: the D1 `CaptureResponse` returns server-local directory paths. The revised I6 avoids this, and the same may be wanted for I4.
+---
 
 # Finished components, the D2 diagrams
 
-## For the Frost Prediction Engine (Rule-based Model)
-### Data Model
-**Frost Data Model Conventions**
+## 2.1 Frost Prediction Engine (I3)
 
-| Figure element | Meaning |
-|---|---|
-| Box | One entity. The title is the entity name; each line inside is one key attribute. |
-| `PK`, `FK` | Primary key, foreign key. |
-| Solid line | Identifying relationship (the child cannot exist without the parent). |
-| Dashed line | Non-identifying relationship. |
-| Line ends (crow's foot) | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
+### Data model
 
-**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
+> **OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System**
+> *Goal: Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.*
+> **Figure F-1: Frost data model** (ER conventions above)
+
 ```mermaid
 erDiagram
-    ZONE_CONFIG ||--o{ SENSOR_READING : "defines thresholds for"
-    SENSOR_READING ||--|{ FROST_ALERT : "triggers"
+    ZONE_CONFIG ||--o{ SENSOR_READING : "applies to"
+    ZONE_CONFIG ||--o{ FROST_ALERT : "issues"
+    ZONE_CONFIG ||--o{ ZONE_CONFIG_HISTORY : "logs changes"
 
     ZONE_CONFIG {
         string zone_id PK
-        string growth_stage "e.g., dormant, swollen bud, bud break"
-        float critical_temp "adjusted by farmer"
+        string org_id
+        string growth_stage "dormant, swollen bud, bud break, ..."
+        float critical_temp "F, adjusted by farmer"
         int min_exposure_duration "default 30 min"
-        string expected_cloudiness "weather-service input"
+        timestamp updated_at
+    }
+    ZONE_CONFIG_HISTORY {
+        string zone_id PK, FK
+        timestamp changed_at PK
+        string growth_stage "value before the change"
+        float critical_temp "value before the change"
+        string changed_by
     }
     SENSOR_READING {
         string sensor_id PK
         timestamp tstamp PK
+        string zone_id FK
         float air_temp_f "at bud/shoot zone"
         float relative_humidity
         float wind_speed_mph
         string leaf_wetness "wet or dry"
         float soil_temp
         string soil_moisture "dry, normal, moist, saturated"
+        string quality "ok or suspect"
     }
     FROST_ALERT {
         string alert_id PK
@@ -65,105 +92,93 @@ erDiagram
         int alert_level "1 to 6"
         string frost_type "radiation, advective, mixed"
         string injury_likelihood "low, medium, high"
+        string quality "ok, degraded, or stale"
     }
 ```
 
-### Behavior (State Machine):
-Every 15 minutes the following derived variables are calculated by the engine:<br>
-**Cooling rate:** calculated over previous timeframes<br>
-$$CoolingRate_{60} = T_{now} - T_{60min}$$<br>
-**Dew point (magnus approximation):** Where a = 17.625 and b = 243.04°C<br>
-$$\gamma = \ln\left(\frac{RH}{100}\right) + \frac{aT}{b+T}$$<br>
-$$T_d = \frac{b\gamma}{a-\gamma}$$<br>
-**Dew point spread:**<br>
-$$DewPointSpread = T_{air} - T_{dewpoint}$$<br>
-**Projected temperature:**<br>
-$$T_{projected,2h} = T_{now} + 2(CoolingRate_{60})$$<br>
+An alert is derived from several readings, so it holds a `zone_id` and no key to a single reading. The forecast is fetched when the engine runs and is not stored. Readings and thresholds are stored in °F. Ingestion converts the sensors' °C (D0 I2) on write, and the dew-point step converts to °C internally and back.
 
-**Frost State Machine Conventions**
+### Behavior
 
-| Figure element | Meaning |
-|---|---|
-| Black circle | The initial or terminal state of the system. |
-| Gray rounded box | A specific operational alert level (state). |
-| Red rounded box | An explicit error-handling or degraded state. |
-| Solid arrow | A state transition triggered by new sensor readings or time passing. |
-| Dashed arrow | An error path triggered by missing inputs, invalid boundary values, or timing timeouts |
-| Text on arrow | The specific rule conditions and thresholds required to trigger the transition. |
+Every 15 minutes, per zone, the engine computes:
 
+$$CoolingRate_{60} = T_{now} - T_{60min} \qquad T_{projected,2h} = T_{now} + 2(CoolingRate_{60})$$
 
-**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
+$$\gamma = \ln\left(\frac{RH}{100}\right) + \frac{aT}{b+T},\quad T_d = \frac{b\gamma}{a-\gamma},\quad DewPointSpread = T_{air} - T_d \qquad (a = 17.625,\ b = 243.04\,°C)$$
+
+Alert levels are evaluated top-down each cycle, so an alert may skip levels. Level 5 is left only through Level 6, which prevents a false all-clear.
+
+| Level | Name | Enter when |
+|---|---|---|
+| 1 | Normal | No higher condition holds. |
+| 2 | Frost Watch | Growth stage is swollen bud or later (sensitive tissue) and $T_{projected,2h} \le$ `critical_temp` + 2°F (rapid cooling). |
+| 3 | Frost Warning | Growth stage is swollen bud or later and $T_{projected,2h} \le$ `critical_temp`. Wind > 10 mph classifies the event as advective; otherwise radiation. |
+| 4 | Frost Imminent | Air ≤ 33°F or bud-zone temperature ≤ 32°F. |
+| 5 | Event In Progress | Temperature ≤ `critical_temp` for at least `min_exposure_duration`. |
+| 6 | All Clear | From Level 5 only: temperature ≥ `critical_temp` + 2°F, stable or rising for 30 min, and no forecasted decline. If no forecast is available, only the first two conditions are used. Level 6 is a recovery state, not the most severe level. |
+
+> **OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System**
+> *Goal: Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.*
+> **Figure F-2: Frost alert state machine, including error paths** (state-machine conventions above)
+
 ```mermaid
 flowchart TB
-    %% Styling to mimic state machine shapes
-    classDef state fill:#f3f4f6,stroke:#374151,stroke-width:2px,rx:10px,ry:10px;
-    classDef errorState fill:#fee2e2,stroke:#dc2626,stroke-width:2px,rx:10px,ry:10px;
-    classDef point fill:#000,stroke:#000,rx:20px,ry:20px;
+    classDef state fill:#f3f4f6,stroke:#374151,stroke-width:2px
+    classDef errorState fill:#fee2e2,stroke:#dc2626,stroke-width:2px
+    classDef resume fill:#dbeafe,stroke:#2563eb,stroke-width:2px
+    classDef point fill:#000,stroke:#000
 
     Start((( ))):::point
-    End((( ))):::point
-
     L1["Level 1: Normal"]:::state
     L2["Level 2: Frost Watch"]:::state
     L3["Level 3: Frost Warning"]:::state
     L4["Level 4: Frost Imminent"]:::state
     L5["Level 5: Event In Progress"]:::state
     L6["Level 6: All Clear"]:::state
-
-    ErrData["Invalid Data Handler"]:::errorState
-    ErrSensor["Degraded Alert State<br>(Sensor Unavailable)"]:::errorState
+    ErrData["Invalid Data Handler<br>(reading rejected, quality flag set)"]:::errorState
+    ErrSensor["Degraded Alert State<br>(Sensor unavailable or data stale)"]:::errorState
+    Resume["Return to held level<br>(level before the error)"]:::resume
 
     Start --> L1
+    L1 -->|Sensitive stage & rapid cooling| L2
+    L2 -->|Warning thresholds met| L3
+    L1 -->|Sensitive stage & projected temp ≤ critical| L3
+    L3 -->|Air ≤ 33°F or bud ≤ 32°F| L4
+    L4 -->|Temp ≤ critical for min exposure| L5
+    L5 -->|Temp ≥ critical+2°F, stable 30 min, no forecast decline| L6
+    L6 -->|All clear issued| L1
+    L6 -->|Temp ≤ critical again| L5
+    L2 -->|Watch conditions clear| L1
+    L3 -->|Warning conditions clear| L2
+    L4 -->|Imminent conditions clear for 2 readings| L3
 
-    %% Main Happy Path (Solid lines force the central vertical layout)
-    L1 -->|Bud swell+ & Rapid cooling| L2
-    L1 -->|Sensitive tissue & Advective/Radiation| L3
-    L2 -->|Worsens to L3 thresholds| L3
-    L3 -->|Air <= 33°F OR Bud <= 32°F| L4
-    L4 -->|Bud <= Critical OR <= 30°F| L5
-    L5 -->|Temp >= Critical+2°F & Stable| L6
-    L6 --> End
-
-    %% Bad Input / Boundary Values (Dashed lines push to the side)
-    L1 -.->|Invalid Data OR Spread < -0.2°F| ErrData
-    L2 -.->|Invalid Data| ErrData
-    L3 -.->|Invalid Data| ErrData
-    ErrData -.->|Reject & flag quality| End
-
-    %% Missing Input / Timing Constraints (Dashed lines push to the side)
-    L1 -.->|Missed 2 intervals| ErrSensor
-    L2 -.->|Missed 1 interval| ErrSensor
-    L3 -.->|Missed 1 interval| ErrSensor
-    L4 -.->|Sensor failure| ErrSensor
-    L5 -.->|Sensor failure| ErrSensor
-    ErrSensor -.->|Data restored| L5
+    L1 & L2 & L3 & L4 & L5 -.->|Range error or spread < -0.2°F| ErrData
+    L1 & L2 & L3 & L4 & L5 -.->|Stale: 2 missed intervals in L1, 1 in L2-L5| ErrSensor
+    ErrData -.->|Next valid reading| Resume
+    ErrSensor -.->|Fresh valid reading| Resume
 ```
 
-Each rule has specified thresholds for measurements (either derived variables or sensor readings)
+While in either red state the engine never lowers the alert and displays "Sensor data unavailable" with the time of the last good reading (EC-F1).
 
-### Interface (I3):
-**Endpoint:** internal method call<br>
-**Inputs:** JSON array with the last 6 hourly sensor reading objects and the zone config thresholds<br>
-**Outputs:** JSON array with alert level, frost type, injury likelihood, zone id<br>
-**Errors:** Returns an error if there are fewer than two data points provided or the historical database is unreachable<br>
+### Interface (I3, revised)
 
+**Endpoint:** internal method call, `evaluate(zone_id, readings, zone_config, forecast?)`. The gateway loads the history, so the engine never queries a database.<br>
+**Input:** JSON object with `zone_id`, `readings` (15-minute readings from the last 6 hours, at least 2), `zone_config` thresholds, and an optional latest `forecast`.<br>
+**Output:** JSON object `{zone_id, alert_level, level_name, frost_type, injury_likelihood, quality: "ok" | "degraded" | "stale", last_reading_at}`.<br>
+**Errors:** `INSUFFICIENT_DATA` (fewer than two valid readings; the gateway keeps the last alert), `INVALID_CONFIG`. Errors use `{success:false, code, error}`.
 
-## Disease Prediction Engine
+## 2.2 Disease Detection (I4)
 
-| Figure element | Meaning |
-|---|---|
-| Box | An entity. The title is the entity name and each line inside is one attribute. |
-| `PK`, `FK` | Primary key, foreign key. |
-| Solid line | Identifying relationship. |
-| Dashed line | Non-identifying relationship. |
-| Line ends (crow's foot) | Cardinality: `\|\|` exactly one, `o\|` zero or one, `\|{` one or more, `o{` zero or more. |
+### Data model
 
-```mermaid 
+> **OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System**
+> *Goal: Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.*
+> **Figure D-1: Multispectral disease data model** (ER conventions above)
+
+```mermaid
 erDiagram
     MULTISPECTRAL_IMAGE ||--|{ IMAGE_PATCH : "is patched into"
     IMAGE_PATCH ||--o{ VINE_DETECTION : "produces"
-    VINE_DETECTION ||--o| VEGETATION_INDICES : "provides region for"
     IMAGE_PATCH ||--o{ VEGETATION_INDICES : "provides statistics for"
     IMAGE_PATCH ||--o{ DISEASE_PREDICTION : "produces"
     VEGETATION_INDICES ||--o{ DISEASE_PREDICTION : "provides features to"
@@ -171,12 +186,13 @@ erDiagram
     RESNET_MODEL ||--o{ DISEASE_PREDICTION : "produces"
 
     MULTISPECTRAL_IMAGE {
-        string image_id PK
-        string vineyard_id FK
+        string image_id PK "capture_id"
+        string org_id
+        string zone_id
         timestamp captured_at
-        string image_file
+        string band_files "five aligned TIFF names"
+        string analysis_status "OK, NO_VINE_TILES, or FAILED"
     }
-
     IMAGE_PATCH {
         string patch_id PK
         string image_id FK
@@ -186,13 +202,11 @@ erDiagram
         int patch_height
         int window_stride
     }
-
     RESNET_MODEL {
         string model_id PK
         string task_type "vine_detection or disease_classification"
         string weights_file
     }
-
     VINE_DETECTION {
         string detection_id PK
         string patch_id FK
@@ -200,17 +214,14 @@ erDiagram
         float confidence_score
         string detection "vine or no_vine"
     }
-
     VEGETATION_INDICES {
         string veg_ind_id PK
         string patch_id FK
-        string detection_id FK
         float ndvi
         float ndre
         float gndvi
         float savi
     }
-
     DISEASE_PREDICTION {
         string classification_id PK
         string patch_id FK
@@ -221,16 +232,55 @@ erDiagram
     }
 ```
 
-## Yield Estimation Module
+The single-photo ViT workflow (`/predict`, D1 algorithm 1) has **no persistent data**: the result is returned and held only in the app. In multispectral captures, a vine detection gates which patches reach the disease model.
 
-D1 gave this module a data model (D1 figure "Data model, Yield Estimation") and its two core algorithms (D1 Core algorithms 5 and 6). D1 did not cover how the web app starts a count and gets the result back, what happens over the life of a counting run, or how a photo that fails is reported. D1 left one open item: a corrupt photo stopped the whole run. D2 adds a run record with an issue log, a run lifecycle, a revised I6 interface, and a decision for every failure path. Items marked "planned" are designed but not yet in code. Today the module runs as the command-line batch `scripts/run_pipeline.py` in `grapevision/`.
+### Behavior
 
-### Data model (Figure Y-1)
+**Single photo (`/predict`).** Decode, preprocess, run the ViT, apply softmax. If the top-class probability is below `low_confidence_cutoff` (default 0.5, set on validation data), return `status: "MANUAL_REVIEW"` with the top three classes. Otherwise return `status: "OK"`.
 
-**Figure Y-1 conventions:** the same as the D1 Yield Estimation figure conventions (box = entity, `PK`/`FK`/`UK` keys, solid line = identifying, dashed line = non-identifying, crow's-foot ends for cardinality, "planned" = not yet in code). Entities marked "(D1)" are shown only with the attributes needed to read the new relationships. Their full attribute lists are in D1.
+**Multispectral (`/process-capture`).** Validate at least five TIFFs and a unique `capture_id`; align the bands, compute NDVI and NDRE, and tile (D1 algorithm 2); skip tiles with vine probability below 0.5 and run the disease model on the rest. If no tile qualifies, set `status: "NO_VINE_TILES"` instead of reporting a healthy crop. Upload outputs, write Firestore (with `org_id` and `zone_id`), and return URLs only.
 
-**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
+### Interface (I4, revised)
+
+| Route | Input | Success | Errors |
+|---|---|---|---|
+| `POST /predict` | Multipart `file` | `200 {disease, confidence, top3, status}` | `400 INVALID_IMAGE`; `503 MODEL_UNAVAILABLE` |
+| `POST /process-capture` | Multipart `files` (TIFF), `capture_id`, `zone_id`; `org_id` from `X-Request-User` | `200 CaptureResponse` | `400 TOO_FEW_BANDS`; `409 CAPTURE_EXISTS`; `413 FILE_TOO_LARGE`; `422 ALIGNMENT_FAILED`; `502 UPLOAD_FAILED`; `503 MODEL_UNAVAILABLE` |
+
+`CaptureResponse = {capture_id, status, inference_summary, firebase_upload}`. The D1 server-local directory paths are removed, and the summary's `output_files` become public URLs. `inference_summary.status` is `OK`, `NO_VINE_TILES`, or `MANUAL_REVIEW`. Error body: `{success:false, code, error}`.
+
+## 2.3 Pest Detection (I5)
+
+**Data model:** no persistent data. Each request is stateless, and results stay in the app.<br>
+**Behavior:** validate (decodes, at least 64×64 px), normalize, run ResNet-18 on CPU, apply softmax over six classes. If the top confidence is below 0.5, return `status: "UNCERTAIN"`.<br>
+**Interface (I5, revised):** `POST /pests_predict` with multipart `file` returns `200 {success:true, prediction, confidence, status: "OK" | "UNCERTAIN"}`. Errors: `400 INVALID_IMAGE`, `422 IMAGE_TOO_SMALL`, `503 MODEL_UNAVAILABLE`, with body `{success:false, code, error}`. D0 listed a bounding box in I5's output, but the D1 model is a classifier, so the box is removed.
+
+## 2.4 Web App & Gateway: ingestion (I1, I2) and history
+
+**Data model.**
+- `SENSOR_READING` (BigQuery): fields as in Figure F-1, plus `org_id`, `site_id`, `battery_level`. Key: `(sensor_id, tstamp)`.
+- `SENSOR_STATUS` (Firestore `sensors/{sensor_id}`): `zone_id`, `last_seen`, `state` (ACTIVE or STALE), `key_hash`.
+- `CAPTURE` (Firestore `captures/{capture_id}`): D1 fields plus `org_id` and `zone_id`. The dashboard stream now filters by `org_id`.
+
+**Behavior (I2).** Check the sensor key, validate the schema and ranges, convert units to °F, upsert by `(sensor_id, tstamp)`, update `last_seen`, acknowledge. A monitor marks a sensor STALE when `last_seen` exceeds the freshness limit, and the dashboard then lists it and refuses a "current" prediction (AC-01.2).<br>
+**Behavior (I1).** Authenticate, accept only supported formats, store the capture with `org_id` and `zone_id`, route it to I4 (TIFF) or I6 (JPEG or PNG), return `capture_id`.<br>
+**History (D1, unchanged):** D2 adds validation of start before end, site/zone parentage, and a point limit (EC-W4).
+
+| Interface | Route | Success | Errors |
+|---|---|---|---|
+| I1 | `POST /api/v1/captures` (multipart `files`, `zone_id`) | `201 {capture_id}` | `401`; `413 FILE_TOO_LARGE`; `415 UNSUPPORTED_FORMAT` |
+| I2 | `POST /api/v1/readings` (JSON as in D0, plus `sensor_id`; header `X-Sensor-Key`) | `200 {ack:true, duplicate:boolean}` | `400 SCHEMA_INVALID`; `401`; `422 OUT_OF_RANGE`; `503 STORE_UNAVAILABLE` |
+
+## 2.5 Yield Estimation (I6)
+
+The module runs today as the batch script `scripts/run_pipeline.py`. Items marked "planned" are designed but not yet built.
+
+### Data model
+
+> **OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System**
+> *Goal: Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.*
+> **Figure Y-1: Yield data model.** Entities marked "(D1)" show only the attributes needed here; D1 has the full lists. (ER conventions above)
+
 ```mermaid
 erDiagram
     CAPTURE ||--o{ YIELD_RUN : "analyzed by"
@@ -241,9 +291,9 @@ erDiagram
     MASS_CALIBRATION |o..o{ YIELD_ESTIMATE : "supplies mass for"
 
     CAPTURE {
-        string capture PK "(D1) e.g. West_Zone2_09_11_2026"
-        string zone "(D1) field identifier"
-        date date "(D1) capture date"
+        string capture PK "(D1) API name: capture_id"
+        string zone "(D1)"
+        date date "(D1)"
     }
     MEDIA_RECORD {
         string capture PK, FK "(D1)"
@@ -253,116 +303,67 @@ erDiagram
     YIELD_RUN {
         string run_id PK "UUID, planned"
         string capture FK
+        string org_id "tenant; gateway filters on it"
         string level "row, section, or image"
-        string status "see Figure Y-2"
-        string requested_by "user ID from gateway; never exported"
+        string status "QUEUED, RUNNING, AGGREGATING, COMPLETED, COMPLETED_WITH_WARNINGS, FAILED"
+        string requested_by "never exported"
         datetime created_at
-        datetime started_at "nullable"
-        datetime finished_at "nullable; forecast generation date"
-        string model_version "SHA-256 prefix of detector weights"
-        string config_hash "SHA-256 of merged YAML config"
-        string catalog_hash "SHA-256 of catalog snapshot"
+        datetime finished_at "forecast generation date"
+        string model_version
+        string config_hash
+        string catalog_hash
         string device "cuda:0 or cpu"
         int images_total
         int images_failed
-        string error_code "nullable; set only when FAILED"
+        string error_code "set only when FAILED"
     }
     RUN_ISSUE {
-        string run_id PK, FK "planned"
+        string run_id PK, FK
         int seq PK
-        string rel_path "nullable"
+        string rel_path "null = run-level"
         string severity "warning or error"
-        string code "e.g. UNREADABLE_IMAGE, GPU_FALLBACK"
+        string code "e.g. UNREADABLE_IMAGE"
         string message
     }
     GROUP_TOTAL {
-        string run_id PK, FK "D2: added to D1 key"
+        string run_id PK, FK "D2: added to the D1 key"
         string group_key PK "(D1)"
         int images_failed "D2"
         int countable "(D1)"
     }
     YIELD_ESTIMATE {
-        string run_id PK, FK "planned"
+        string run_id PK, FK
         string group_key PK, FK
+        string zone FK "with season: calibration used, null if none"
+        int season FK "year of the capture date"
         float estimated_yield_kg "null = unavailable"
         string unavailable_reason "NO_CALIBRATION, INCOMPLETE_GROUP, or null"
     }
     MASS_CALIBRATION {
         string zone PK "planned"
-        int season PK "harvest year"
+        int season PK
         float mean_bunch_mass_kg "0 < m <= 2.0"
-        int sample_size "bunches weighed"
+        int sample_size
         date measured_on
     }
 ```
 
-| Structural decision | Reason |
-|---|---|
-| A `YIELD_RUN` entity holds each counting run. | A count is only meaningful with the model, configuration, and photo set that produced it. Recording `model_version`, `config_hash`, and `catalog_hash` on the run meets the constraints-essay requirement to retain configuration and model versions so a result can be traced. It also lets the module return the existing run when the same request arrives twice (EC-Y17). |
-| `GROUP_TOTAL` is keyed by `(run_id, group_key)`, not `group_key` alone. | D1 assumed one count per group. Re-running a capture after retraining must not overwrite the earlier figure, because research exports (AC-05.1) need both. This supersedes the D1 key; D1 itself is unchanged. |
-| `RUN_ISSUE` is a separate log, zero-or-many per run. | Failures are per photo: one corrupt file must not stop a 2,200-photo run (EC-Y9). The log feeds the warnings shown to the farm worker, and a null `rel_path` marks run-level issues such as `ROW_FILTER_DISABLED`. |
-| Bunch mass moves from configuration into `MASS_CALIBRATION`, keyed by zone and season. | Mean bunch mass changes with the vineyard block and the year. A single config value would apply one block's mass to another. Storing `sample_size` and `measured_on` shows how much the figure can be trusted. |
-| Storage stays as flat files per run (`outputs/runs/<run_id>/run.json`, `issues.csv`, `per_image.csv`, `per_<level>.csv`; `calibration.csv`). | D1's flat-file decision still holds: one writer, a few thousand rows per season. The web app copies the finished run summary into Firestore `yield_runs/{run_id}` so the dashboard can stream it the same way it streams `captures`. |
+`GROUP_TOTAL` is keyed by `(run_id, group_key)`, which supersedes the D1 key so that a re-run after retraining does not overwrite an earlier count (AC-05.1 exports need both). `RUN_ISSUE` is a separate log because failures are per photo. Bunch mass moves from configuration into `MASS_CALIBRATION` because mass differs by block and year. Storage stays as flat files per run, as in D1; the web app copies the finished summary to Firestore `yield_runs/{run_id}`.
 
-### Behavior: run lifecycle (Figure Y-2)
+### Behavior: run lifecycle
 
-**Figure Y-2 conventions:**
+A run's `status` moves `QUEUED`, `RUNNING`, `AGGREGATING`, then `COMPLETED` (no issues) or `COMPLETED_WITH_WARNINGS` (at least one issue). It ends in `FAILED` if no photo was readable, outputs cannot be written, or the service restarts mid-run. Cheap checks (capture exists, name has a zone and date, at least one supported photo, model loaded) run before a run is created and fail at once without creating one. One GPU worker takes runs first-in, first-out. On startup, any run left in `RUNNING` becomes `FAILED` with `INTERRUPTED`.
 
-| Figure element | Meaning |
-|---|---|
-| Filled black dot, ringed dot | Start and end of a run's life. |
-| Rounded box | A value of `YIELD_RUN.status`. The status is stored, so a client can poll it. |
-| Red box | A terminal state with no count result. |
-| Arrow | A transition. The label gives the event that causes it; a label starting with `ERR` is an error path. |
-| Self-loop on `RUNNING` | One photo was processed, whether it succeeded or failed. |
+### Behavior: per-photo processing with error paths
 
-**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
-```mermaid
-stateDiagram-v2
-    [*] --> QUEUED : POST /yield/runs passes validation
-    QUEUED --> RUNNING : worker free, catalog snapshot loaded
-    QUEUED --> CANCELLED : DELETE
-    RUNNING --> RUNNING : photo counted, or photo failed and RUN_ISSUE logged
-    RUNNING --> AGGREGATING : every photo attempted
-    RUNNING --> CANCELLING : DELETE
-    CANCELLING --> CANCELLED : current photo finishes, partial results discarded
-    RUNNING --> FAILED : ERR disk full, or ERR service restarted
-    AGGREGATING --> COMPLETED : no issues
-    AGGREGATING --> COMPLETED_WITH_WARNINGS : at least one issue
-    AGGREGATING --> FAILED : ERR no photo was readable
-    COMPLETED --> [*]
-    COMPLETED_WITH_WARNINGS --> [*]
-    FAILED --> [*]
-    CANCELLED --> [*]
+> **OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System**
+> *Goal: Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.*
+> **Figure Y-2: Per-photo flow with error paths** (flowchart conventions above)
 
-    classDef err fill:#fee2e2,stroke:#dc2626,stroke-width:2px
-    class FAILED, CANCELLED err
-```
-
-Checks that are cheap (the capture exists, its name gives a zone and date, it holds at least one supported photo, the model is loaded) run before a run is created. These failures return an error at once and never enter `QUEUED`. One GPU worker takes runs from a first-in, first-out queue. On startup, any run left in `RUNNING` or `CANCELLING` is set to `FAILED` with `error_code = INTERRUPTED`.
-
-### Behavior: per-photo processing with error paths (Figure Y-3)
-
-This is the riskiest flow in the module. Each photo depends on two models, the GPU, and the file itself. D1 Core algorithm 5 gives the happy path; this figure adds what happens when a step fails.
-
-**Figure Y-3 conventions:**
-
-| Figure element | Meaning |
-|---|---|
-| Rectangle | A processing step. |
-| Diamond | A decision; the outgoing arrows are labeled with the answer. |
-| Solid arrow | Normal path. |
-| Dashed arrow | Error or fallback path. |
-| Amber box | Degraded: the photo is still counted and a warning `RUN_ISSUE` is logged. |
-| Red box | Failed: the photo is left out of the count and an error `RUN_ISSUE` is logged. The text gives the issue code. |
-
-**Project Title:** OMID AI-Based Farm Disease, Pest, Yield, and Frost Detection System<br>
-**Goal Statement:** Help crop farmers make timely, informed decisions by combining stationary sensor readings and drone imagery to assess frost, disease, and pest risks, estimate crop yield, and provide organized records for planning and research.
 ```mermaid
 flowchart TD
     A[Next photo in catalog snapshot] --> B{Same SHA-256 as an<br>earlier photo?}
-    B -.->|yes| W0[DUPLICATE_IMAGE<br>skip, counted once]:::warn
+    B -.->|yes| W0[DUPLICATE_IMAGE<br>skipped, counted once]:::warn
     B -->|no| C{Decodes as RGB<br>with EXIF rotation?}
     C -.->|no, or file gone| X1[UNREADABLE_IMAGE]:::err
     C -->|yes| D{Short side >= 320 px?}
@@ -372,7 +373,8 @@ flowchart TD
     E -->|no| F[SAHI tiles + YOLO11<br>keep score >= conf]
     W1 --> F
     F -.->|CUDA out of memory| G[Retry this photo once on CPU<br>GPU_FALLBACK]:::warn
-    G -.->|fails again| X3[DETECT_FAILED]:::err
+    F -.->|other detector error| X3[DETECT_FAILED]:::err
+    G -.->|fails again| X3
     G --> H
     F --> H{Any detections?}
     H -->|no| Z[Counts 0, depth skipped]
@@ -386,190 +388,197 @@ flowchart TD
     X1 --> N[Increment images_failed<br>for this photo's group]
     X2 --> N
     X3 --> N
+    R -->|next photo| A
+    N -->|next photo| A
+    W0 -->|next photo| A
 
     classDef warn fill:#fef3c7,stroke:#d97706,stroke-width:2px
     classDef err fill:#fee2e2,stroke:#dc2626,stroke-width:2px
 ```
 
-After every photo is attempted, `aggregate` sums each group, and the yield step runs for each group:
+After all photos are attempted, `aggregate` sums each group and the yield step runs:
 
 ```text
 If the group has images_failed > 0:  estimated_yield_kg = null, reason INCOMPLETE_GROUP (count still shown, flagged)
-Else if no MASS_CALIBRATION for (zone, season):  estimated_yield_kg = null, reason NO_CALIBRATION
+Else if no MASS_CALIBRATION for (zone, season):  null, reason NO_CALIBRATION
 Else:  estimated_yield_kg = countable x mean_bunch_mass_kg   (0 countable gives 0 kg, a real zero)
 ```
 
 ### Interface (I6, revised)
 
-**Revision of the D0 I6 row.** D0 had I6 take "Field Images" and return "crop count, estimated yield", failing "if imagery is too poor to analyze". Four changes:
-
 | D0 I6 | D2 I6 | Why |
 |---|---|---|
-| Request carries the field images. | Request carries a `capture_id`. Photos are uploaded once through I1. | Sending 22 to 2,200 photos again for every run would repeat I1 and double the upload over a weak vineyard connection. |
-| Detector settings were unstated, so a client could expect to pass them. | No model settings in the request: `conf`, tile size, device, and separability are server configuration, recorded in `config_hash`. | `conf` is tuned on the val split (D1 Core algorithm 6). Letting a client change it produces counts that cannot be compared with each other. Too many parameters, and they leak internals. |
-| One synchronous response. | `202 Accepted` with a `run_id`, then the client polls. | A 2,200-photo run takes up to about 55 minutes on a GPU, far longer than any HTTP timeout. The disease service runs within the request because one capture is 5 TIFFs; yield runs cannot. |
-| One "imagery too poor" failure. | Per-photo `Issue` records plus run-level error codes. | A run should not fail because of one bad photo. The farm worker needs to know which files to retake (AC-02.2). |
+| Request carries the field images. | Request carries a `capture_id`; photos are uploaded once through I1. | Avoids re-uploading 22 to 2,200 photos per run over a weak connection. |
+| Detector settings unstated. | No model settings in the request; `conf`, tile size, device are server configuration recorded in `config_hash`. | Client-set values would make counts incomparable and leak internals. |
+| One synchronous response. | `202 Accepted` with a `run_id`, then polling. | A 2,200-photo run takes up to about 55 min on a GPU, far beyond an HTTP timeout. |
+| One "imagery too poor" failure. | Per-photo `Issue` records plus run-level error codes. | One bad photo must not fail the run, and the worker needs to know which files to retake (AC-02.2). |
 
-The response also leaves out server-local paths and per-detection internals (`features`, depth values). The D1 disease `CaptureResponse` still returns local directory paths; we flag this for the disease owner as an open question in the overview.
-
-**Authentication.** I6 is internal. The gateway authenticates the user and checks their role (US-03), then calls I6 with a shared service token in `Authorization: Bearer <token>` and the user's ID in `X-Request-User`. The yield service stores no roles. Because the gateway checks the role on every request, a revoked permission takes effect on the next call (AC-03.2).
-
-**Notifications.** The yield service does not push. The web app polls `GET /yield/runs/{run_id}` every 5 seconds while a run is active, then copies the terminal state into Firestore, where the dashboard stream picks it up.
-
-**Configuration.** The configuration is layered: package defaults, then the project YAML, then overrides (D1 build-versus-reuse table). It is checked once at startup by `load_config` and `build_pipeline`. An unknown `row_filter.method` or `quality.method`, or a `conf` outside [0, 1], stops the service from becoming ready (EC-Y15). Bunch mass is not part of this configuration; it is data, set through `PUT /yield/calibrations` below.
-
-**Logging.** Each run writes `run.json` (the `YIELD_RUN` record) and `issues.csv` (its `RUN_ISSUE` rows). Service log lines are JSON objects that carry `run_id`, so one run's history can be followed across the log.
-
-**Endpoints** (base path `/yield`; all planned). The error body is `{success: false, code: string, error: string}`, the same shape as the pest and history services in D1 with a machine-readable `code` added.
+**Authentication.** I6 is internal. The gateway checks the user's role on every request and calls I6 with `X-Internal-Service-Key` and `X-Request-User`, as in §2.6. The yield service stores no roles, so a revoked permission takes effect on the next call (AC-03.2). Every route also checks that the run's `org_id` matches the caller's organization.
 
 | Method / route | Input | Success | Errors |
 |---|---|---|---|
-| `POST /yield/runs` | JSON `RunRequest`. | `202`: `RunStatus` for a new run. `200`: `RunStatus` of the existing run when the same capture, level, catalog, config, and model are already queued, running, or completed (EC-Y17). | `400 INVALID_LEVEL`; `401 UNAUTHORIZED`; `404 CAPTURE_NOT_FOUND`; `422 CAPTURE_NAME_INVALID` (no zone or date in the name); `422 NO_SUPPORTED_IMAGES` (message lists accepted formats JPEG and PNG); `429 QUEUE_FULL` with `Retry-After`; `503 MODEL_UNAVAILABLE`. |
-| `GET /yield/runs/{run_id}` | Path `run_id`. | `200`: `RunStatus`. | `401`; `404 RUN_NOT_FOUND`. |
-| `GET /yield/runs/{run_id}/results` | Path `run_id`. | `200`: `RunResult`, only for `COMPLETED` or `COMPLETED_WITH_WARNINGS`. | `401`; `404 RUN_NOT_FOUND`; `409 RUN_NOT_FINISHED` (body includes `status`); `409 RUN_FAILED` (body includes `error_code`). |
-| `GET /yield/runs/{run_id}/annotated/{rel_path}` | Path `run_id`, `rel_path`. | `200`: JPEG with near, far, and countable boxes drawn. | `401`; `404` for an unknown run or a photo with no annotated output. |
-| `DELETE /yield/runs/{run_id}` | Path `run_id`. | `202`: `RunStatus` with `CANCELLING` or `CANCELLED`. | `401`; `404 RUN_NOT_FOUND`; `409 RUN_ALREADY_FINISHED`. |
-| `PUT /yield/calibrations/{zone}/{season}` | JSON `Calibration`. | `200`: the stored `Calibration`. | `400 INVALID_MASS` when the mass is not in (0, 2.0] kg or `sample_size` < 1; `401`. Role check (`canManageSites`) is done by the gateway. |
-| `GET /yield/health` | None. | `200`: `{ready: true, model_version: string, device: string}`. | `503`: `{ready: false, reason: "MODEL_UNAVAILABLE" or "CONFIG_INVALID"}`. |
+| `POST /yield/runs` | `RunRequest` | `202 RunStatus` (new run); `200 RunStatus` if a matching run exists and `force` is false (EC-Y17) | `400 INVALID_LEVEL`; `401`; `404 CAPTURE_NOT_FOUND`; `422 CAPTURE_NAME_INVALID`; `422 NO_SUPPORTED_IMAGES`; `503 MODEL_UNAVAILABLE` |
+| `GET /yield/runs/{run_id}` | path | `200 RunStatus` | `401`; `404 RUN_NOT_FOUND` |
+| `GET /yield/runs/{run_id}/results` | path | `200 RunResult` (completed runs only) | `401`; `404`; `409 RUN_NOT_FINISHED`; `409 RUN_FAILED` |
+| `PUT /yield/calibrations/{zone}/{season}` | `Calibration` | `200 Calibration` | `400 INVALID_MASS`; `401` |
 
-**Data types.**
+**Types.** `RunRequest = {capture_id, level?: "row"|"section"|"image" (default "row"), force?: boolean (default false)}`. `RunStatus = {run_id, capture_id, status, images_total, images_failed, model_version, error_code}`. `RunResult = {run, zone, capture_date, groups, issues, limitations}`, where `limitations` always includes `OVERLAP_NOT_CHECKED` (EC-Y16). `GroupResult = {group_key, images, images_failed, total, near, countable, estimated_yield_kg: number|null, unavailable_reason: "NO_CALIBRATION"|"INCOMPLETE_GROUP"|null}`. `Issue = {rel_path|null, severity, code, message}`. `Calibration = {mean_bunch_mass_kg, sample_size, measured_on}`. Error body: `{success:false, code, error}`. Responses never contain server-local paths.
 
-| Type | Fields |
-|---|---|
-| `RunRequest` | `capture_id: string`, `level?: "row" \| "section" \| "image"` (default `"row"`). |
-| `RunStatus` | `run_id: string`, `capture_id: string`, `level: string`, `status: string` (Figure Y-2), `created_at: string`, `started_at: string\|null`, `finished_at: string\|null`, `images_total: integer`, `images_done: integer`, `images_failed: integer`, `model_version: string`, `device: string`, `error_code: string\|null`, `issue_count: integer`. |
-| `RunResult` | `run: RunStatus`, `zone: string`, `capture_date: string` (ISO date), `groups: GroupResult[]`, `issues: Issue[]`. |
-| `GroupResult` | `group_key: string`, `images: integer`, `images_failed: integer`, `total: integer`, `near: integer`, `countable: integer` (all ≥ 0), `estimated_yield_kg: number\|null`, `unavailable_reason: "NO_CALIBRATION" \| "INCOMPLETE_GROUP" \| null`. |
-| `Issue` | `rel_path: string\|null`, `severity: "warning" \| "error"`, `code: string`, `message: string`. |
-| `Calibration` | `mean_bunch_mass_kg: number`, `sample_size: integer`, `measured_on: string` (ISO date). |
+## 2.6 Glue components
 
-**Internal signatures added in D2** (D1 signatures for `CountingPipeline.run` and `aggregate` are unchanged):
+### Authentication and access control
 
-- `RunQueue.submit(capture_id: str, level: str, user: str) -> tuple[RunStatus, bool]`. The boolean is `True` for a new run. Raises `CaptureNotFound`, `InvalidCaptureName`, `NoSupportedImages`, `QueueFull`, or `ModelUnavailable`; the HTTP layer maps each to the codes above.
-- `PhotoWorker.process(record: MediaRecord) -> ImageResult | Issue`. Never raises for a bad photo; it returns an `Issue` instead. It raises only `StorageError`, which fails the run.
-- `estimate_yield(group: GroupTotal, calibration: MassCalibration | None) -> tuple[float | None, str | None]`. Returns `(kg, None)` or `(None, reason)`.
+**Data model:** no local data. Firebase Authentication issues the token; Firestore `organizations/{orgId}/members/{userId}` holds `role` and the flags `canManageMembers`, `canManageSites`, `canManageSensors`. Sensor boxes use a per-sensor key (hash in `SENSOR_STATUS`).<br>
+**Behavior:** on every request the gateway verifies the `Authorization: Bearer` token (`verifyAuthHeader`), loads the membership and permission flags (`isOrgMember`), and forwards to a module with `X-Internal-Service-Key` and `X-Request-User`. Nothing is cached, so a revoked permission gives `403` on the next call (AC-03.2). Role changes run in a transaction (`RoleUpdater`). Authentication fails closed.<br>
+**Interface:** `POST /api/v1/auth/verify` returns `200 {valid, uid, orgId, permissions}`. Errors: `401 UNAUTHORIZED`, `403 FORBIDDEN`, `503 AUTH_UNAVAILABLE`.
 
-**Example.** `POST /yield/runs` with `{"capture_id": "West_Zone2_09_11_2026", "level": "row"}` returns `202` and a `run_id`. When the run finishes, `GET /yield/runs/{run_id}/results` returns (abridged):
+### Notifications
 
-```json
-{
-  "run": {"run_id": "3f2c...", "status": "COMPLETED_WITH_WARNINGS", "images_total": 22, "images_failed": 1, "model_version": "a91be0c2", "device": "cuda:0"},
-  "zone": "West_Zone2",
-  "capture_date": "2026-09-11",
-  "groups": [
-    {"group_key": "West_Zone2_09_11_2026/row5", "images": 11, "images_failed": 0, "total": 312, "near": 240, "countable": 171, "estimated_yield_kg": 29.07, "unavailable_reason": null},
-    {"group_key": "West_Zone2_09_11_2026/row7", "images": 11, "images_failed": 1, "total": 287, "near": 221, "countable": 160, "estimated_yield_kg": null, "unavailable_reason": "INCOMPLETE_GROUP"}
-  ],
-  "issues": [
-    {"rel_path": "row7/Section3/sequence2.jpg", "severity": "error", "code": "UNREADABLE_IMAGE", "message": "cannot identify image file"}
-  ]
-}
-```
+**Data model:** `NOTIFICATION_EVENT {event_id PK, org_id, zone_id, alert_type: FROST|DISEASE|PEST|SENSOR_OFFLINE|SYSTEM, severity: INFO|WARNING|CRITICAL, message, created_at, dedup_key, status: PENDING|SENT|FAILED}`.<br>
+**Behavior:** the gateway creates an event when an I3, I4, or I5 result crosses a threshold (frost Level 3 or higher) or a sensor goes STALE. It validates the event and suppresses repeats of the same `dedup_key` (zone, type, level) unless the level rose. `CRITICAL` events (frost Level 4 or higher) are sent at once; `INFO` and `WARNING` events are merged into one digest per user per 15 minutes. Events go to the in-app feed, which the dashboard streams like `captures`.<br>
+**Interface:** internal `notify(event) -> {status, suppressed}`. Errors: `INVALID_EVENT`, `STORE_UNAVAILABLE`.
 
-The example values are illustrative, assuming a calibrated mass of 0.17 kg; they are not measured results.
+### Configuration
+
+**Data model:** farmer-set zone thresholds are `ZONE_CONFIG` and `ZONE_CONFIG_HISTORY` (Figure F-1). Service settings are layered (defaults, project YAML, overrides) and checked at startup.<br>
+**Behavior:** `PUT /api/v1/zones/{zone_id}/config` needs `canManageSites`, validates the growth stage and numeric ranges, appends the old values to the history, and writes only if the caller's `updated_at` matches the stored value.<br>
+**Interface:** body `{growth_stage, critical_temp, min_exposure_duration, updated_at}` returns `200 ZoneConfig`. Errors: `400 INVALID_CONFIG`, `403`, `404 ZONE_NOT_FOUND`, `409 CONFIG_CONFLICT`.
+
+### Logging
+
+**Data model:** no database; each service writes one JSON line `{ts, level, service, request_id, user_id, event, code?, message}`.<br>
+**Behavior:** the gateway creates `request_id` and passes it as `X-Request-Id`, so one request can be followed across services. Logging never raises or blocks a request.<br>
+**Interface:** `log(level, event, **fields) -> None`.
+
+## 2.7 D0 interface revisions
+
+| ID | D0 problem | D2 change |
+|---|---|---|
+| I1 | Format only. | `POST /api/v1/captures` with `zone_id`; returns `capture_id`; `413`/`415` errors (§2.4). |
+| I2 | No sensor identity, duplicate handling, or unit rule. | Adds `sensor_id`, `X-Sensor-Key`, an idempotent `duplicate` flag, and °C→°F on ingestion (§2.4). |
+| I3 | Array output; "database unreachable" error although history is an input. | Object in and out with a `quality` field; engine never queries a database (§2.1). |
+| I4 | Returned server-local paths. | URLs only, plus `status` and specific error codes (§2.2). |
+| I5 | Promised a bounding box the classifier cannot give. | Classification only, plus `status` and error codes (§2.3). |
+| I6 | Too many parameters; synchronous. | `capture_id`, `202` and polling, server-side settings (§2.5). |
+
+---
 
 # Edge cases and error handling
 
-**Frost prediction:**
-| ID | Component | Category | Edge Case | Design Decision | Handler | Recoverable |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| EC-F1 | Frost Engine | Missing Input | Primary temperature sensor fails during an active warning. | Retain the current alert, display "Sensor data unavailable," and show timestamp of latest measurement. | `AlertDowngradeGuard` | Yes |
-| EC-F2 | Frost Engine | Timing / Missing Input | Missing reporting intervals. | Mark data stale after 2 missed intervals (Normal) or 1 interval (Watch+). Do not downgrade an alert for stale data. | `StaleDataMonitor` | Yes |
-| EC-F3 | Frost Engine | Bad Input | Relative humidity or temperature is outside valid range. | Do not calculate dew point from invalid temperature or humidity. | `DewPointCalculator` | Yes |
-| EC-F4 | Frost Engine | Boundary Value | Dew-point spread is highly negative (<-0.2°F). | Treat as a likely sensor error or mismatched measurements; trigger a data-quality flag. | `SpreadValidator` | Yes |
-| EC-F5 | Frost Engine | Boundary Value | Soil is saturated. | Do not automatically reduce frost risk, as drainage and root health become separate concerns. | `RiskModifier` | Yes |
+Every row has a decided behavior, a named handler, and a recoverability note. Error paths are drawn in Figures F-2 and Y-2.
 
-**Yield estimation:** handler names refer to the classes in the I6 internal signatures and in D1 Core algorithm 5. Figure Y-3 draws the per-photo rows (EC-Y5, Y6, Y9, Y13, Y25, Y26), and Figure Y-2 draws the run-level failures.
+| ID | Component | Category | Edge case | Design decision | Handler | Recoverable |
+|---|---|---|---|---|---|---|
+| EC-F1 | Frost | Missing input | Primary temperature sensor fails during an active warning | Hold the alert, show "Sensor data unavailable" and the last reading time (F-2) | `AlertDowngradeGuard` | Yes |
+| EC-F2 | Frost | Timing | Reporting intervals missed | Stale after 2 missed (L1) or 1 (L2+); never downgrade on stale data | `StaleDataMonitor` | Yes |
+| EC-F3 | Frost | Bad input | Humidity or temperature outside its valid range | Reject the reading, skip dew point and spread, set the quality flag, evaluate temperature-only rules | `DewPointCalculator` | Yes |
+| EC-F4 | Frost | Boundary | Dew-point spread below −0.2°F | Treat as a sensor or unit mismatch; flag quality, ignore the spread | `SpreadValidator` | Yes |
+| EC-F5 | Frost | Boundary | Soil saturated | Does not lower the level; shown as context only | `RiskModifier` | Yes |
+| EC-F6 | Frost | External | History store unreachable | Gateway retries 3 times, then holds the last alert marked "Data delayed" | `HistoryLoader` | Yes |
+| EC-F8 | Frost | Concurrency | Duplicate or late reading | Upsert by `(sensor_id, tstamp)`; a late reading is stored and used next cycle; cycles run serially per zone | `ReadingStore`, `CycleScheduler` | Yes |
+| EC-D1 | Disease | Boundary | Top-class probability below the cutoff, or no vine tile | `MANUAL_REVIEW` or `NO_VINE_TILES`; never reported as healthy | `ResultClassifier` | Yes, retake |
+| EC-D2 | Disease | Bad input | Corrupt image, or fewer than five TIFFs | `400 INVALID_IMAGE` or `TOO_FEW_BANDS`; nothing stored | `CaptureValidator` | Yes |
+| EC-D4 | Disease | Concurrency | Same `capture_id` uploaded twice | `409 CAPTURE_EXISTS`; no overwrite | `CaptureValidator` | Yes |
+| EC-D5 | Disease | External | Firebase upload or write fails | `502 UPLOAD_FAILED`; keep local outputs, skip cleanup, client may retry | `FirebaseUploader` | Yes |
+| EC-P1 | Pest | Boundary | Image under 64×64 px or confidence below 0.5 | `422 IMAGE_TOO_SMALL`, or `status: UNCERTAIN` | `PestValidator` | Yes, retake |
+| EC-P2 | Pest | Bad input | Undecodable file | `400 INVALID_IMAGE` instead of a generic 500 | `PestValidator` | Yes |
+| EC-P3 | Pest | Concurrency | Simultaneous requests | Stateless CPU inference; requests are independent | `predict` | Not an error |
+| EC-P4 | Pest | External | Weights missing or corrupt | `503 MODEL_UNAVAILABLE` | `ModelLoader` | Yes |
+| EC-W1 | Web app (I1, I2) | Bad input | Unsupported file (I1) or invalid reading (I2) | `415`, `400 SCHEMA_INVALID`, or `422 OUT_OF_RANGE`; nothing stored; sensor flagged | `UploadRouter`, `ReadingValidator` | Yes |
+| EC-W2 | Web app | Timing | Sensor stops reporting | Mark STALE; the dashboard lists it and refuses a current prediction (AC-01.2) | `SensorHealthMonitor` | Yes |
+| EC-W3 | Web app | Concurrency | Sensor retries the same POST | Idempotent upsert; `200` with `duplicate: true` | `ReadingStore` | Yes |
+| EC-W4 | Web app (history) | Boundary | Start after end, zone outside site, or too many points | `400 RANGE_INVALID`, `403 ZONE_NOT_IN_SITE`, `413 TOO_MANY_POINTS` (suggest a coarser interval) | `HistoryValidator` | Yes |
+| EC-W5 | Web app | External | BigQuery or Firestore unavailable | `503 STORE_UNAVAILABLE`; sensor boxes buffer and retry with backoff | `ReadingStore` | Yes |
+| EC-A1 | Auth | Boundary | Token expires mid-request | Treated as expired: `401`; the client refreshes and retries once | `verifyAuthHeader` | Yes |
+| EC-A2 | Auth | Bad input | Missing or malformed header | `401 UNAUTHORIZED` | `verifyAuthHeader` | Yes |
+| EC-A3 | Auth | Concurrency | Permission revoked during an active session, or two owners demote each other | Re-read membership each request (`403`); role changes run in a transaction | `isOrgMember`, `RoleUpdater` | Yes |
+| EC-A4 | Auth | External | Firebase unreachable | Fail closed: `503 AUTH_UNAVAILABLE` | `verifyAuthHeader` | Yes |
+| EC-N1 | Notifications | Boundary | Burst of events in one window | Batch INFO/WARNING per user per 15 min; CRITICAL sent at once | `NotificationBatcher` | Yes |
+| EC-N2 | Notifications | Bad input | Event missing zone or type, or unknown severity | `INVALID_EVENT`; not sent; logged | `NotificationValidator` | Yes |
+| EC-N3 | Notifications | Timing | Same alert re-evaluated every 15 min | Suppress repeats of the same `dedup_key` unless the level rose | `DedupFilter` | Yes |
+| EC-N4 | Notifications | External | Feed write fails | Retry 3 times, then mark `FAILED` and log; the alert still shows on the dashboard | `NotificationDispatcher` | Yes |
+| EC-C1 | Configuration | Boundary | `critical_temp` or `min_exposure_duration` out of range | `400 INVALID_CONFIG`; keep the old config | `ZoneConfigValidator` | Yes |
+| EC-C2 | Configuration | Bad input | Unknown `growth_stage` or zone | `400 INVALID_CONFIG` or `404`; no write | `ZoneConfigValidator` | Yes |
+| EC-C3 | Configuration | Concurrency | Two admins edit one zone | Stale `updated_at` returns `409 CONFIG_CONFLICT`; history keeps both | `ZoneConfigStore` | Yes |
+| EC-C4 | Configuration | External | Config store unreachable during an engine cycle | Use the cached config and mark quality `degraded` | `ZoneConfigStore` | Yes |
+| EC-L1 | Logging | Boundary | Oversized message | Truncate and set `truncated: true` | `Logger` | Yes |
+| EC-L2 | Logging | Bad input | Missing `request_id` or fields | Generate or fill them; never reject | `Logger` | Yes |
+| EC-L3 | Logging | Concurrency | Many concurrent writers | One JSON object per line, atomic append | `Logger` | Yes |
+| EC-L4 | Logging | External | Disk full or sink unavailable | Drop INFO and DEBUG, keep ERROR on stderr; never fail the request | `LogSinkFallback` | Yes |
+| EC-Y1 | Yield | Boundary | Capture has no JPEG or PNG | `422 NO_SUPPORTED_IMAGES` listing accepted formats; no run created (AC-02.2) | `RunQueue.submit` | Yes, resubmit |
+| EC-Y5 | Yield | Boundary | Photo with a long side over 4096 px | Degrade: downscale and log `DOWNSCALED` (Y-2) | `PhotoWorker` | Yes |
+| EC-Y7 | Yield | Boundary | Mass missing, or ≤ 0 or > 2.0 kg | Out of range: `400 INVALID_MASS`. Missing: yield null with `NO_CALIBRATION`, never 0 (AC-04.2) | `CalibrationStore`, `estimate_yield` | Yes, add a calibration and re-run with `force` |
+| EC-Y9 | Yield | Bad input | Corrupt photo, or file deleted after the snapshot | Log `UNREADABLE_IMAGE` and continue; group yield null `INCOMPLETE_GROUP` (Y-2); closes the D1 open item | `PhotoWorker` | Yes, retake and re-run |
+| EC-Y11 | Yield | Bad input | Folder name has no valid zone or date | `422 CAPTURE_NAME_INVALID` (AC-02.1 needs both) | `RunQueue.submit` | Yes, rename |
+| EC-Y16 | Yield | Bad input | Consecutive shots overlap, so a bunch is counted twice | Not detected. Every `RunResult` carries `OVERLAP_NOT_CHECKED`, and the capture protocol requires non-overlapping shots | `aggregate` | No, until tracking exists |
+| EC-Y17 | Yield | Concurrency | Same request sent twice | Return the existing run (`200`) unless `force` is true; the key is capture, level, `catalog_hash`, `config_hash`, `model_version` | `RunQueue.submit` | Yes |
+| EC-Y20 | Yield | Concurrency | Service restarts during a run | At startup mark `RUNNING` runs `FAILED` with `INTERRUPTED`; no auto-retry | `StartupRecovery` | Yes, resubmit |
+| EC-Y25 | Yield | External | GPU out of memory on a photo | Retry that photo once on CPU (`GPU_FALLBACK`); a second failure logs `DETECT_FAILED` (Y-2) | `PhotoWorker` | Yes |
+| EC-Y26 | Yield | External | Depth weights not cached and offline | Row filter off, all boxes near, `ROW_FILTER_DISABLED` warning (Y-2) | `build_pipeline` | Yes, cache weights and re-run |
+| EC-Y27 | Yield | External | Detector weights missing or corrupt | Service not ready; `503 MODEL_UNAVAILABLE`; no fallback to a generic model | `build_pipeline` | Yes |
+| EC-Y29 | Yield | External | Web app cannot reach I6 or its Firestore write fails | Results stay in the run store; the app retries the idempotent `GET` with backoff and shows "result pending" | `YieldRunPoller` (owner: Andrea) | Yes |
 
-| ID | Component | Category | Edge Case | Design Decision | Handler | Recoverable |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| EC-Y1 | Yield Estimation | Boundary Value | Capture holds no photo in a supported format (empty folder, or only videos or HEIC). | Surface an error: `422 NO_SUPPORTED_IMAGES`, no run created, message names the accepted formats and asks for new photos. No count or yield is shown (AC-02.2). | `RunQueue.submit` | Yes, resubmit with JPEG or PNG photos |
-| EC-Y2 | Yield Estimation | Boundary Value | A photo has zero detections. | Valid count of 0; the depth model is skipped. Not an error. | `PhotoWorker` | Not an error |
-| EC-Y3 | Yield Estimation | Boundary Value | Fewer than two boxes in a photo, all boxes at the same depth, or a box with no depth value (NaN). | Otsu separability is 0, so every box stays near; a NaN box is near. The filter removes a bunch only with evidence of a second row. | `DepthRowFilter` | Yes, may overcount |
-| EC-Y4 | Yield Estimation | Boundary Value | A detection score exactly equals `conf`. | Kept (`>=`), so results are deterministic. | `CountingPipeline.run` | Not an error |
-| EC-Y5 | Yield Estimation | Boundary Value | Photo from a different camera with a long side over 4096 px. Tile count grows with area: about 300 tiles at 8000×6000. | Degrade: downscale to 4096 px on the long side before tiling and log `DOWNSCALED`. Small bunches may be missed. | `PhotoWorker` | Yes |
-| EC-Y6 | Yield Estimation | Boundary Value | Photo with a short side under 320 px (thumbnail or crop). | Leave the photo out and log `IMAGE_TOO_SMALL`. Its group is marked incomplete. | `PhotoWorker` | Yes, retake the photo |
-| EC-Y7 | Yield Estimation | Boundary Value | Bunch mass missing for the zone and season, or submitted as ≤ 0 or > 2.0 kg. | Out of range: reject with `400 INVALID_MASS`. Missing: yield is null with `NO_CALIBRATION` and shown as unavailable, never 0 (AC-04.2). | `CalibrationStore`, `estimate_yield` | Yes, enter a calibration and re-run |
-| EC-Y8 | Yield Estimation | Boundary Value | All photos read but 0 countable bunches. | Real zero: report 0 kg, which is different from null "unavailable". | `estimate_yield` | Not an error |
-| EC-Y9 | Yield Estimation | Bad / Missing Input | Corrupt or truncated photo, or a file deleted after the catalog snapshot. | Degrade: log `UNREADABLE_IMAGE` with the file name, leave it out, and continue the run. The group's count is shown with a warning, and its yield is null `INCOMPLETE_GROUP`. This closes the D1 open item where one bad file stopped the run. | `PhotoWorker` | Yes, retake and re-run |
-| EC-Y10 | Yield Estimation | Bad / Missing Input | Mix of supported and unsupported files (HEIC from an iPhone, TIFF, video). | Skip the unsupported files when cataloging and log one `UNSUPPORTED_FORMAT` warning per file. If none remain, EC-Y1 applies. | `scan_capture` | Yes |
-| EC-Y11 | Yield Estimation | Bad / Missing Input | Capture folder name does not match `<zone>_<MM>_<DD>_<YYYY>`, or has an impossible date. | Surface an error: `422 CAPTURE_NAME_INVALID`. A count without a field ID and date cannot meet AC-02.1. | `RunQueue.submit` | Yes, rename the folder |
-| EC-Y12 | Yield Estimation | Bad / Missing Input | Photos are not in `rowN/SectionM` folders, but row totals were requested. | Fall back to image-level groups and log a run-level `NO_ROW_STRUCTURE` warning. Row totals are not invented. | `MediaRecord.group_key` | Yes |
-| EC-Y13 | Yield Estimation | Bad / Missing Input | The same photo appears twice (copied into two section folders). | Count it once (matching SHA-256) and log `DUPLICATE_IMAGE`. | `PhotoWorker` | Yes |
-| EC-Y14 | Yield Estimation | Bad / Missing Input | `level` is not `row`, `section`, or `image`. | Surface an error: `400 INVALID_LEVEL`. | `RunQueue.submit` | Yes |
-| EC-Y15 | Yield Estimation | Bad / Missing Input | Invalid configuration: unknown stage method, or `conf` outside [0, 1]. | The service refuses to become ready, and `/health` returns `503 CONFIG_INVALID`. No run uses a half-valid configuration. | `load_config`, `build_pipeline` | Yes, after the config is fixed and the service restarted |
-| EC-Y16 | Yield Estimation | Bad / Missing Input | Consecutive shots overlap, so one bunch appears in two photos. | Known limitation, not detected: `aggregate` assumes shots do not overlap. Documented in the capture protocol, and tracking across video frames is planned. Listed in the overview gaps. | `aggregate` | No, overcounts silently |
-| EC-Y17 | Yield Estimation | Timing / Concurrency | Same request sent twice (double-click, client retry) while a matching run is queued, running, or done. | Return the existing run with `200` and start no second GPU job. "Matching" means the same capture, level, `catalog_hash`, `config_hash`, and `model_version`. | `RunQueue.submit` | Yes |
-| EC-Y18 | Yield Estimation | Timing / Concurrency | Several different runs requested while the single GPU is busy. | Queue first-in, first-out with one worker. Over 20 queued runs, return `429 QUEUE_FULL` with `Retry-After`. | `RunQueue` | Yes, retry later |
-| EC-Y19 | Yield Estimation | Timing / Concurrency | Photos added to or removed from the capture folder while a run is active. | The run uses the catalog snapshot taken when it was submitted (`catalog_hash`). New photos need a new run; removed photos fall under EC-Y9. | `RunQueue`, `PhotoWorker` | Yes |
-| EC-Y20 | Yield Estimation | Timing / Concurrency | Service crashes or restarts during a run. | On startup, mark `RUNNING` and `CANCELLING` runs `FAILED` with `INTERRUPTED`, and discard partial totals. No automatic retry, because a crash may come from the photo itself. | `StartupRecovery` | Yes, manual resubmit |
-| EC-Y21 | Yield Estimation | Timing / Concurrency | A run takes longer than an HTTP timeout (up to about 55 min for 2,200 photos). | Never process within the request: `202` and polling (Interface I6). | `RunQueue` | Not an error |
-| EC-Y22 | Yield Estimation | Timing / Concurrency | Cancel arrives while a photo is being processed. | Move to `CANCELLING`, finish the current photo, then `CANCELLED` with partial results discarded. A cancelled run never shows a count. | `PhotoWorker` | Yes |
-| EC-Y23 | Yield Estimation | Timing / Concurrency | Bunch mass is changed after a run has finished. | Finished runs keep the yield computed with the mass at aggregation time, because results do not change after the fact. A re-run uses the new mass. | `estimate_yield` | Yes |
-| EC-Y24 | Yield Estimation | External Dependency | No CUDA GPU at startup (driver missing, laptop without GPU). | Degrade to CPU and report `device: "cpu"` in `/health` and `RunStatus`. Expect about 1 to 2 h for 2,200 photos (D1 complexity). | `build_pipeline` | Yes |
-| EC-Y25 | Yield Estimation | External Dependency | GPU runs out of memory on a photo. | Fall back: retry that photo once on CPU and log `GPU_FALLBACK`. A second failure logs `DETECT_FAILED` and leaves the photo out (EC-Y9 rules apply). | `PhotoWorker` | Yes |
-| EC-Y26 | Yield Estimation | External Dependency | Depth Anything weights are not cached and Hugging Face is unreachable (field laptop offline). | Degrade: row filter becomes `none`, all boxes are near, and a `ROW_FILTER_DISABLED` warning is logged on the run. Counts may include the row behind. Install pre-caches the weights. | `build_pipeline` | Yes, cache weights and re-run |
-| EC-Y27 | Yield Estimation | External Dependency | Detector weights file missing or corrupt. | Surface an error: the service is not ready, and `POST` returns `503 MODEL_UNAVAILABLE`. No fallback to the generic `yolo11m.pt`, whose COCO classes include no grape bunch. | `build_pipeline` | Yes, restore the weights |
-| EC-Y28 | Yield Estimation | External Dependency | Disk full while writing run outputs. | `FAILED` with `STORAGE_ERROR`; nothing partial is published. | `RunStore` | Yes, free space and resubmit |
-| EC-Y29 | Yield Estimation | External Dependency | Web app cannot reach I6, or its Firestore write fails. | Results stay in the yield run store. The web app retries the idempotent `GET` with backoff (5, 10, 20, 40 s, then every 60 s) and shows "result pending", not a stale count. | Web app `YieldRunPoller` (to agree with the web-app owner) | Yes |
+---
 
 # Requirements traceability table
 
-**Frost prediction:**
-| ID | Short Text | Priority | Design Elements | How it is satisfied | Gap Explanation |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| R-F1 | Distinguish frost mechanisms | High | `frost_type` in `FROST_ALERT`, Rules 3A and 3C | Wind speeds classify the event (e.g., > 10 mph signals an advective freeze). | None |
-| R-F2 | Calculate dew point accurately | High | `DewPointCalculator`, Magnus approximation | Uses air temperature and humidity internally in Celsius to compute dew point. | None |
-| R-F3 | Prevent false all-clears | High | State Machine `Level6_AllClear` transition | Prevents lowering alert until temp is 2°F above threshold, stable for 30 mins, with no forecasted decline. | None |
-| R-F4 | Localized sensor targeting | Med | `SENSOR_READING.air_temp_f` | Evaluates temperatures measured specifically at the grape bud/shoot zone, rather than generic box temperatures. | None |
-| R-F5 | Retain configuration history | Med | `ZONE_CONFIG` historic logs | Timestamps and stores farmer configurations with growth stage, preceding values, and outcomes for local calibration. | None |
+Requirement IDs are the acceptance criteria in User_Stories. `R-F` rows are frost requirements derived from AC-01.1 and the D0 responsibility table. `NFR-` rows come from the constraints essay. Rows marked "proposed" are not yet in User_Stories.
 
-**Yield estimation:** requirement IDs are the acceptance criteria in User_Stories. `NFR-` rows come from the constraints essay. "Figure Y-n" and `EC-Yn` refer to the yield sections above, and "D1 Algorithm n" refers to D1 Core algorithms.
+| ID | Short text | Priority | Design elements | How it is satisfied | Gap explanation |
+|---|---|---|---|---|---|
+| AC-01.1 | Show predicted likelihood, period, field, and sensor timestamp | High | I3 output, `FROST_ALERT`, I4/I5 `status`, F-2, §2.4 `SENSOR_READING` | Each result carries its zone and the time of the last reading. Disease and pest results return class, confidence, and a status flag (§2.2, §2.3). | Disease and pest models predict from images, not from a forecast period. Only frost gives a time period (the 2 h projection). |
+| AC-01.2 | Name stale sensors and refuse a current prediction | High | `SENSOR_STATUS.state`, `StaleDataMonitor`, EC-F2, EC-W2, F-2 | A STALE sensor is listed and the alert is shown as degraded, never as current. | None |
+| R-F1 | Distinguish frost mechanisms | High | `frost_type`, rule table L3 | Wind > 10 mph classifies advective; otherwise radiation. | "Mixed" has no rule yet; the domain owner should define it. |
+| R-F2 | Calculate dew point accurately | High | Magnus formula, `DewPointCalculator`, EC-F3, EC-F4 | °F inputs converted to °C internally; invalid inputs rejected. | None |
+| R-F3 | Prevent false all-clears | High | F-2 Level 5→6, rule table L6, EC-F1 | The only exit from Level 5; needs +2°F, 30 min stable, no forecast decline. | None |
+| R-F4 | Use bud-zone temperature | Med | `SENSOR_READING.air_temp_f` | Rules read the bud/shoot-zone reading. | None |
+| R-F5 | Retain configuration history | Med | `ZONE_CONFIG_HISTORY`, EC-C3 | Every change appends the old values. | Outcome of each alert is not linked to a config version. |
+| AC-02.1 | Show a whole-number count and yield with unit, field, and date | High | `POST /yield/runs`, `GroupResult`, `RunResult.zone`, `capture_date`, Y-2, EC-Y11 | One request starts the count. Zone and date come from the capture name. | Yield in kg needs `MASS_CALIBRATION`. "Countable" uses the size baseline until the fullness CNN exists. Accuracy is unmeasured. |
+| AC-02.2 | Explain why analysis cannot proceed; show no count | High | `422 NO_SUPPORTED_IMAGES`, `FAILED` state, `Issue`, EC-Y1, EC-Y9 | Refused before a run exists, or the run ends `FAILED` and `/results` returns `409 RUN_FAILED`. | None |
+| AC-02.3 (proposed) | Count only near-row, full bunches | High | Row filter, quality stage, D1 algorithm 5, DR-05, DR-07 | Detection, then Otsu depth split, then quality stage. | Not yet in User_Stories; proposed so this logic is not scope creep. |
+| AC-03.1 | Role-based login and access | High | §2.6 auth, `verifyAuthHeader`, `isOrgMember`, EC-A1, EC-A2, EC-A4 | Every request checks the token and membership; modules accept only gateway calls. | Service-key rotation is not designed (owner: Andrea). |
+| AC-03.2 | A revoked permission is denied on the next request | High | Per-request permission read, `RoleUpdater` transaction, EC-A3 | Nothing is cached across requests. | None |
+| AC-04.1 | Buyer export with crop, field, harvest period, yield, date | Med | `YIELD_RUN.finished_at`, `GroupResult.estimated_yield_kg`, `RunResult.zone` | The yield module supplies yield, unit, field, and generation date. | Crop type and harvest period are not stored by the yield module (open question for the web app). Export format is outside this module. |
+| AC-04.2 | Label missing yield as unavailable, not 0 | High | `estimated_yield_kg = null`, `unavailable_reason`, EC-Y7, EC-Y9 | Null plus a reason; a real zero stays 0 kg. | None in the module; the export label belongs to the web app. |
+| AC-05.1 | Research CSV with anonymized fields, no account IDs | Med | `GROUP_TOTAL` keyed by run, `per_<level>.csv`, `YIELD_RUN.requested_by` excluded | Every run is kept; `requested_by` is excluded. | Yield and frost records are covered. Disease and pest results are not stored beyond `captures`, so their export depends on the web app. Anonymization is applied by the web-app export. |
+| AC-05.2 | "No records found" message and no file for an empty range | Med | History query returns `graphs: []` | The web app shows the message when the query is empty. | The message and UI are web-app work, not yet designed here. |
+| NFR-SEC | Access control, logging, retained versions, data-quality flags | High | §2.6 auth and logging, `YIELD_RUN` hashes, `RUN_ISSUE`, `quality` fields, `X-Request-Id` | Every count and alert traces to its inputs and versions. | None |
+| NFR-ECON | Stay within the $2,000 budget (D0 DL-6) | High | Reused hardware, CPU fallback (EC-Y25), free libraries | All dependencies are free; yield runs on CPU or an owned GPU. | Ultralytics is AGPL-3.0; an RT-DETR fallback exists. |
+| NFR-ENV | Work with an unreliable vineyard connection | Med | Sensor retry and buffering (EC-W5), `capture_id` instead of re-upload, EC-Y26 | Offline degradation with warnings instead of failure. | Mobile offline viewing is unaddressed; MQTT is untested (DL-5). |
+| NFR-SOC | Adaptable to new regions and crops | Low | `ZONE_CONFIG`, `MASS_CALIBRATION` per zone and season, detector interface | A new block or season needs only configuration rows. | A new crop needs new labeled photos; there is no zero-shot path. |
+| NFR-PERF (proposed) | Capture results within about 1 hour of upload | Med | Async runs (§2.5), EC-Y25 | Batch job on GPU; 202 and polling. | No requirement states a limit; we propose one and will measure before optimizing. |
 
-| ID | Short Text | Priority | Design Elements | How it is satisfied | Gap Explanation |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| AC-02.1 | Show a nonnegative whole-number count and an estimated yield with its unit, field ID, and capture date, with no manual counting | High | `POST /yield/runs`; `GroupResult.countable` and `estimated_yield_kg`; `RunResult.zone` and `capture_date` from `CAPTURE`; D1 Algorithm 5; Figures Y-2 and Y-3; EC-Y2, EC-Y11 | One request starts the count. Counts are sums of detection lists, so they are integers ≥ 0. The unit is fixed in the field name (`_kg`). Zone and date are parsed from the capture name, and a capture without them is refused (EC-Y11). | Partial. Yield in kg needs `MASS_CALIBRATION`, which is planned and needs bunches weighed at the farm. "Countable" uses the size baseline until the fullness CNN is trained. Count accuracy has not been measured on the test split. |
-| AC-02.2 | Explain why analysis cannot proceed when no image is readable, and show no count | High | `422 NO_SUPPORTED_IMAGES`; `FAILED` state in Figure Y-2; `Issue` and `RUN_ISSUE`; EC-Y1, EC-Y9, EC-Y10 | No supported photo: refused before a run exists, with the accepted formats listed. No readable photo: the run ends `FAILED` and `/results` returns `409 RUN_FAILED`, so no count is available. Some unreadable: the files are named and their groups' yield is null. | None |
-| AC-04.1 | Buyer export includes crop, field, harvest period, yield with unit, and generation date | Med | `YIELD_ESTIMATE.estimated_yield_kg`; `YIELD_RUN.finished_at` as the generation date; `CAPTURE.zone` | The yield module supplies yield, unit, field, and generation date in `RunResult`. The web app builds the export. | Gap: crop type and expected harvest period are not stored by the yield module. Proposed: both come from the web app's zone settings (open question for the web-app owner). Export format is out of this module's scope. |
-| AC-04.2 | Label yield as unavailable instead of 0 or a substitute forecast | High | `estimated_yield_kg = null` with `unavailable_reason`; `estimate_yield`; `MASS_CALIBRATION` keyed by zone and season; EC-Y7, EC-Y8, EC-Y9 | Null and a reason, never 0. A real zero stays 0 kg (EC-Y8). Calibration is looked up only for the exact zone and season, so another field's mass is never substituted. | None in the module. The export label wording belongs to the web app. |
-| AC-05.1 | Research CSV of yield records with anonymized field IDs and no account identifiers | Med | `per_<level>.csv` and `run.json` per run; `GROUP_TOTAL` keyed by `(run_id, group_key)` | Every run is kept, so a date range selects records by `CAPTURE.date`. Counts carry their run's model version. | Gap: `zone` is the farm's own name (e.g. `West_Zone2`). The anonymized mapping is applied by the web-app export. `YIELD_RUN.requested_by` must be excluded from it. The module stores no GPS location. |
-| AC-03.1, AC-03.2 | Role-based access; a revoked permission is denied on the next request | High | I6 Authentication paragraph; `401 UNAUTHORIZED`; `X-Request-User` | I6 accepts only gateway calls with the service token. Role checks stay in the gateway on every request, so the module never holds stale permissions. | Gap: rotation of the service token is not designed yet (owner: web app). |
-| NFR-SEC (traceability) | Retain configuration and model versions, logging, and data-quality indicators | High | `YIELD_RUN.model_version`, `config_hash`, `catalog_hash`, `device`; `RUN_ISSUE`; JSON log lines with `run_id` | Every count can be traced to its weights, configuration, and exact photo set. Every degraded or failed photo leaves a coded record. | None |
-| NFR-ECON | Stay within the $2,000 budget (D0 DL-6) | High | CPU fallback (EC-Y24); D1 build-versus-reuse table | Runs on an owned 6 GB GPU or on CPU only; all dependencies are free. | Risk: Ultralytics is AGPL-3.0 (D1 license note). An RT-DETR fallback exists behind the same detector interface. |
-| NFR-ENV | Work in a vineyard with an unreliable connection | Med | Pre-cached weights; offline fallback EC-Y26; `capture_id` instead of re-uploading photos (I6 revision) | A run needs no network once photos are uploaded. Losing the depth model degrades the count with a warning instead of failing. | None |
-| NFR-SOC | Adaptable to new regions and crops | Low | `MASS_CALIBRATION` per zone and season; layered configuration; detector behind a callable interface | A new block or season needs only a calibration row. A new crop needs a new detector behind the same interface. | Gap: the detector is trained only on grape bunches. A new crop needs new labeled photos; there is no zero-shot path. |
-| (none) | Run time for a capture | — | D1 Algorithm 5 complexity; EC-Y21, EC-Y24 | Designed for under 1 min per 22-photo capture on a GPU, run as a batch job. | Gap: no requirement states a time limit. We propose adding one (e.g., results within 1 hour of upload for one capture) and will measure before optimizing. |
+**Reverse check: design elements with no direct requirement.**
 
-**Reverse check, yield design elements to requirements.** Elements without a direct requirement:
+| Design element | Decision |
+|---|---|
+| Frost `min_exposure_duration` and `T_projected` | Now used in Levels 2, 3, and 5 and traced to R-F3 and R-F1. Keep. |
+| Yield threshold tuning (D1 algorithm 6) | Keep; it makes AC-02.1 counts trustworthy. Proposed NFR: count error target on the test split. |
+| `DETECTION.features`; learned row filter | Keep `features` (cheap). The learned filter is deferred until row labels exist. |
 
-| Design element | Requirement behind it | Decision |
-|---|---|---|
-| Row filter and quality stage (`DETECTION.row`, `quality`; D1 Algorithm 5) | AC-02.1 asks for "crop count" but not *which* bunches count. The sponsor's rule (near row, full bunches only) is not written in User_Stories. | Keep. Proposed new criterion AC-02.3: "the count excludes bunches on other rows and bunches the farm does not harvest." Without it this logic looks like scope creep. |
-| Threshold tuning and count metrics (D1 Algorithm 6) | No accuracy target exists. | Keep, because it is how AC-02.1 counts are made trustworthy. Proposed NFR: count MAE target per photo on the test split, set after the first labeled test set. |
-| `DETECTION.features` and the planned learned row filter | None directly. | Keep only `features`, since recording them is cheap. The learned filter is deferred until `row` labels exist and the Otsu baseline is measured. |
-| Annotated photo endpoint | None. It supports trust in AC-02.1 ("without requiring manual counting"). | Keep as low priority; it is the first item to cut if time runs short. |
-| Video frames and cross-frame tracking (planned, EC-Y16) | None. | Out of scope for now. Videos are skipped at cataloging; tracking returns only if overlap proves to be a measurable error. |
-| Training, splitting, and CVAT tooling (`scripts/`) | None at runtime. | Kept as development tooling needed to produce the model, not a product feature. |
+---
 
 # Design rationale
 
-These entries expand the significant D1 and D2 decisions. The architecture baseline remains in D0's **Decision log (DL-1 through DL-6)** and is referenced rather than repeated here.
+These entries expand the significant D1 and D2 decisions. The architecture baseline remains in D0's **Decision log (DL-1 through DL-6)** and is referenced rather than repeated here. Entries updated by the peer review are marked **Updated by peer review**.
 
 ## DR-01: Separate single-photo and multispectral disease workflows
 
 We chose separate single-photo ViT and multispectral disease workflows over one shared inference pipeline because the photo model uses a 224×224 preprocessed image, while the multispectral model requires aligned bands, spectral indices, and seven-channel tiles. We accepted the trade-off of maintaining different preprocessing steps and response types because each workflow must preserve the input representation expected by its trained model.
 
+**Updated by peer review (PR-04):** the single-photo workflow now returns a `MANUAL_REVIEW` status when the top-class probability is below the cutoff, instead of always returning its top class (§2.2).
+
 **References:** D1, Core algorithms 1–2 and API contract (`/predict`, `/process-capture`); extends D0 DL-3's task-specific model boundaries.
 
 ## DR-02: Screen multispectral tiles for vines before disease analysis
 
-We chose vine classification followed by disease analysis on overlapping 64×64 tiles over assigning one disease label to the entire capture because the staged approach focuses analysis on vine regions and produces a spatial heatmap. We accepted the trade-off of an additional classifier and missed disease when vine probability falls below 0.5 because the disease stage needs relevant plant regions rather than background imagery. The current `disease_detected: false` result when no vine tiles qualify remains a limitation; it does not establish that the crop is healthy.
+We chose vine classification followed by disease analysis on overlapping 64×64 tiles over assigning one disease label to the entire capture because the staged approach focuses analysis on vine regions and produces a spatial heatmap. We accepted the trade-off of an additional classifier and missed disease when vine probability falls below 0.5 because the disease stage needs relevant plant regions rather than background imagery. The current `disease_detected: false` result when no vine tiles qualify remains a limitation; it does not establish that the crop is healthy. D2 reports this case as `NO_VINE_TILES` (§2.2).
 
 **References:** D1, Core algorithm 2 and `InferenceSummary`; related D0 interface I4.
 
 ## DR-03: Aggregate historical readings in the backend
 
-We chose scoped BigQuery queries and server-side time buckets over downloading all raw sensor records for browser-side aggregation because the dashboard requests specific organizations, sites, zones, readings, and date ranges. We accepted the trade-off of losing detail within each bucket and depending on the history service because selectable intervals and `AVG`, `MIN`, or `MAX` provide useful chart summaries without transferring every reading. This does not resolve D1's separately documented gaps in site/zone parentage validation or query limits.
+We chose scoped BigQuery queries and server-side time buckets over downloading all raw sensor records for browser-side aggregation because the dashboard requests specific organizations, sites, zones, readings, and date ranges. We accepted the trade-off of losing detail within each bucket and depending on the history service because selectable intervals and `AVG`, `MIN`, or `MAX` provide useful chart summaries without transferring every reading. D2 closes part of D1's separately documented gaps by adding site/zone parentage validation and a point limit (EC-W4).
 
 **References:** D1, Core algorithm 4 and API contract (`HistoryRequest`, `HistoryResponse`, `/getHistoricalSeries`); builds on D0 DL-4.
 
@@ -577,11 +586,13 @@ We chose scoped BigQuery queries and server-side time buckets over downloading a
 
 We chose bounding-box detection in side-view RGB photos over D0's multispectral segmentation approach because bunches hang below the canopy and the available farm photos and training datasets are RGB. We accepted the trade-off of requiring side-view capture coverage and obtaining boxes rather than precise masks because counting needs individual bunch instances and box annotation requires less labeling work. This is the design refinement already recorded in D1, not a newly attributed peer-review change.
 
-**References:** D1, Core algorithm 5, “Change from D0”; refines D0's Yield Estimation description and I6 input assumptions.
+**References:** D1, Core algorithm 5, "Change from D0"; refines D0's Yield Estimation description and I6 input assumptions.
 
 ## DR-05: Separate bunch detection, row filtering, and quality assessment
 
-We chose detection followed by separate row and quality filters over a single detector trained to recognize a “countable” class because countability depends on row position and bunch fullness, which are difficult to learn together from the small labeled dataset. We accepted the trade-off of additional stages and configuration because each stage can be tested independently and the `total`, `near`, and `countable` counts show where bunches were excluded. The fullness CNN and conversion from counts to kilograms remain planned, as marked in D1.
+We chose detection followed by separate row and quality filters over a single detector trained to recognize a "countable" class because countability depends on row position and bunch fullness, which are difficult to learn together from the small labeled dataset. We accepted the trade-off of additional stages and configuration because each stage can be tested independently and the `total`, `near`, and `countable` counts show where bunches were excluded. The fullness CNN and conversion from counts to kilograms remain planned, as marked in D1.
+
+**Updated by peer review (PR-03):** a photo that cannot be read no longer stops the run. It is logged, left out of the count, and its group's yield is reported as unavailable (Figure Y-2, EC-Y9).
 
 **References:** D1, Core algorithm 5 and data-model entities `DETECTION`, `GROUP_TOTAL`, and `YIELD_ESTIMATE`; related D0 interface I6.
 
@@ -607,35 +618,37 @@ We chose validation-set count MAE to select the detector confidence threshold ov
 
 We chose zone configuration containing growth stage, a farmer-adjusted critical temperature, and minimum exposure duration over one universal injury threshold because frost sensitivity changes with crop development and local conditions. We accepted the trade-off of requiring correct configuration and domain validation because the alert must reflect the crop's current vulnerability. This refines the rule-based baseline in D0 DL-2 rather than reopening the choice between rules and a trained model.
 
-**References:** D2, `ZONE_CONFIG` data model and Interface I3; D0 DL-2.
+**References:** D2, `ZONE_CONFIG` data model (Figure F-1) and Interface I3; D0 DL-2.
 
 ## DR-10: Require sustained recovery before issuing all-clear
 
-We chose the six-level frost lifecycle with a sustained all-clear condition over clearing an active event as soon as temperature crosses the critical threshold because a brief rise does not establish that the danger has passed. We accepted the trade-off of waiting until temperature is at least 2°F above the critical value, stable or rising for 30 minutes, with no forecasted decline because these conditions provide stronger evidence of recovery. I3's insufficient-data and database errors remain errors rather than evidence for an all-clear.
+We chose the six-level frost lifecycle with a sustained all-clear condition over clearing an active event as soon as temperature crosses the critical threshold because a brief rise does not establish that the danger has passed. We accepted the trade-off of waiting until temperature is at least 2°F above the critical value, stable or rising for 30 minutes, with no forecasted decline because these conditions provide stronger evidence of recovery. I3's insufficient-data error remains an error rather than evidence for an all-clear.
 
-**References:** D2, Frost State Machine (`Level5_EventInProgress` to `Level6_AllClear`) and Interface I3; refines D0 DL-2 and DL-4.
+**Updated by peer review (PR-01):** the state machine gained a degraded alert state that holds the current alert when sensor data is missing or stale, so a sensor failure can never produce an all-clear (Figure F-2, EC-F1).
 
-### 6. Peer design review notes
+**References:** D2, Frost State Machine (Level 5: Event In Progress to Level 6: All Clear; Figure F-2) and Interface I3; refines D0 DL-2 and DL-4.
 
-| ID | Rubric Criterion | Issue & Raising Team | Action | Owner | Priority | Due Date |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| PR-01 | Risk | Missing fallback if primary temperature sensor fails during an active freeze event. | Add a degraded alert state to the Frost Engine state machine to retain warnings. | Cyrus | Must-fix | Week 8 |
-| PR-02 | Completeness | Glue components (Notifications, Logging) lack explicit behavior definitions and batching rules. | Detail glue components in D2 text, including Notification batching behavior. | Andrea | Must-fix | Week 8 |
-| PR-03 | Completeness | Yield estimation lacks explicit handling for corrupt or unreadable image inputs. | Add edge case for `IOError` handling in the ImageLoader to exclude corrupt files. | Dang | Must-fix | Week 8 |
-| PR-04 | Clarity | Disease module behavior is unclear when all ViT confidence scores are extremely low. | Define an explicit boundary value edge case where scores < 0.1 trigger a "manual review" status. | Bridget | Must-fix | Week 8 |
+---
 
-Criterion with the most feedback:
-Completeness drew the most feedback from our reviewers. Multiple teams noted that we had omitted detailed specifications for our glue components and highlighted missing edge cases regarding corrupted inputs in the machine learning pipelines.
+# Peer design review notes
 
-Top two issues we raised while reviewing others (Based on our review of the briann45/senior-design codebase):
+| ID | Rubric criterion | Issue | Action | Owner | Priority | Due date | Applied in |
+|---|---|---|---|---|---|---|---|
+| PR-01 | Risk | No fallback if the primary temperature sensor fails during an active freeze. | Add a degraded alert state to the frost state machine that retains warnings. | Cyrus | Must-fix | Week 8 | Figure F-2, EC-F1, DR-10 |
+| PR-02 | Completeness | Glue components (notifications, logging) lack behavior definitions and batching rules. | Detail the glue components, including notification batching. | Andrea | Must-fix | Week 8 | §2.6, EC-N1 to N4 |
+| PR-03 | Completeness | Yield has no handling for corrupt or unreadable images. | Exclude unreadable photos in `PhotoWorker`, log `UNREADABLE_IMAGE`, and continue the run. | Dang | Must-fix | Week 8 | Figure Y-2, EC-Y9, DR-05 |
+| PR-04 | Clarity | Disease behavior is unclear when model confidence is very low. | Return `MANUAL_REVIEW` when the top-class probability is below the cutoff (default 0.5). | Bridget | Must-fix | Week 8 | §2.2, EC-D1, DR-01 |
 
-Clarity (Data Model): We noted that the D2-data-model in the reviewed team's repository lacked clear cardinality constraints on their primary entity relationships, making it ambiguous how one-to-many associations are handled in their relational schema.
+**Criterion with the most feedback:** Completeness. Several teams noted that glue components and error handling for corrupted machine-learning inputs were missing.
 
-Completeness (State Machine): We pointed out that their D2-ingestion-states diagram was missing explicit error or timeout paths, which leaves edge case behavior undefined and poses a risk of silent failures if their data ingestion process hangs midway.
+**Top two issues we raised while reviewing others** (briann45/senior-design):
+1. **Clarity (data model):** their D2 data model lacked cardinality constraints on its primary relationships, which makes the one-to-many associations ambiguous.
+2. **Completeness (state machine):** their D2 ingestion-states diagram had no error or timeout paths, so a hung ingestion could fail silently.
+
+---
 
 # AI Attribution
-The authors would like to acknowledge the use of Gemini, 
-developed by Google, in the preparation of this assignment. 
-Gemini was used in the following way(s) in this assignment: 
-Style and layout of the mermaid data model and the mermaid
-behavior state machine diagram for the frost engine.
+
+The authors would like to acknowledge the use of Gemini, developed by Google, in the preparation of this assignment. Gemini was used in the following way(s) in this assignment: Style and layout of the mermaid data model and the mermaid behavior state machine diagram for the frost engine.
+
+The authors would also like to acknowledge the use of Claude, developed by Anthropic, in the preparation of this assignment. Claude was used in the following way(s) in this assignment: Consolidating and revising the D2 draft, including the glue components, edge-case table, traceability table, and rationale.
