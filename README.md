@@ -22,3 +22,9 @@ OMID combines vineyard sensor readings and crop imagery to support frost warning
 - [Peer design review notes](Design_Diagrams/Peer_Review_Notes.md)
 - [Requirements Document (Assignment 9)](Requirements_Document.md)
 - [Technical Specification (Assignment 9)](Technical_Specification.md)
+
+## 5. Ethics, legal, security, and diversity concerns (ABET concerns essay)
+
+- [Ethics and responsible-use statement (Assignment 11)](Ethics_Statement.md)
+- [Week 3 constraints essay](constraints_essay.md)
+- [Third-party attribution (NOTICE)](NOTICE.md)
