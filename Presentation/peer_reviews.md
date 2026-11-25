@@ -7,3 +7,5 @@ This is a great idea that supports local bars and restaurants. By making deals e
 3. Everybody Votes<br>
 I think the concept of the project is an interesting idea, and I like that it is inspired  by and improves upon an older app that is no longer accessible. How would
 you protect the service against botted answers and keep the data reliable?
+4. TechniView<br>
+I liked how the project connects interview preparation to coursework and supports both students and professors. One suggestion is to include an example showing how the TechniView Trail recommends the next technique. Does it follow a fixed prerequisite sequence, or does it adapt based on a student’s previous submissions and performance? Showing this decision would make the learning path and its benefits easier to understand.
